@@ -1,4 +1,4 @@
-import type { Coordinates, SortMode, Station, TankerkoenigResponse } from '../types';
+import type { Coordinates, Station, TankerkoenigResponse } from '../types';
 
 export const DEMO_API_KEY = '00000000-0000-0000-0000-000000000002';
 const API_KEY_STORAGE = 'tankapp_api_key';
@@ -46,14 +46,15 @@ export async function validateApiKey(key: string): Promise<{ valid: boolean; mes
 
 export async function fetchStations(
   coords: Coordinates,
-  radKm: number = 5,
-  sort: SortMode = 'dist'
+  radKm: number = 5
 ): Promise<Station[]> {
   const apiKey = getStoredApiKey();
   // Tankerkönig erlaubt maximal 25km pro Abfrage
   const clampedRadius = Math.min(Math.max(radKm, 1), 25);
   
-  const url = `https://creativecommons.tankerkoenig.de/json/list.php?lat=${coords.lat}&lng=${coords.lng}&rad=${clampedRadius}&sort=${sort}&type=all&apikey=${apiKey}`;
+  // Wichtig: Tankerkönig verlangt bei type=all zwingend sort=dist (oder kein sort-Parameter).
+  // Die Sortierung nach Günstigste/Distanz erfolgt clientseitig in der App nach Kraftstoffsorte.
+  const url = `https://creativecommons.tankerkoenig.de/json/list.php?lat=${coords.lat}&lng=${coords.lng}&rad=${clampedRadius}&sort=dist&type=all&apikey=${apiKey}`;
 
   const response = await fetch(url);
   if (!response.ok) {

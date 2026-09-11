@@ -45,40 +45,54 @@ export const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isInstallGuideOpen, setIsInstallGuideOpen] = useState(false);
 
-  // GPS-Standort des iPhones abrufen
+  // GPS-Standort abrufen (mit automatischem Fallback für Desktop/WLAN)
   const requestCurrentLocation = useCallback(() => {
     if (!('geolocation' in navigator)) {
-      setLocationError('GPS-Standort wird von diesem Browser nicht unterstützt.');
+      setLocationError('Standortermittlung wird von diesem Browser nicht unterstützt.');
       return;
     }
 
     setIsLoadingLocation(true);
     setLocationError(null);
 
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setCoords({
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          name: 'Aktueller GPS-Standort',
-        });
-        setIsLoadingLocation(false);
-      },
-      (err) => {
-        console.warn('Geolocation-Fehler:', err);
-        let msg = 'Standort konnte nicht ermittelt werden.';
-        if (err.code === 1) msg = 'Standort-Berechtigung verweigert. Nutze die Ortssuche.';
-        else if (err.code === 2) msg = 'Position nicht verfügbar.';
-        else if (err.code === 3) msg = 'Standortabfrage dauerte zu lange.';
-        setLocationError(msg);
-        setIsLoadingLocation(false);
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 60000,
-      }
-    );
+    const tryGetPosition = (highAccuracy: boolean) => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setCoords({
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            name: 'Aktueller GPS-Standort',
+          });
+          setLocationError(null);
+          setIsLoadingLocation(false);
+        },
+        (err) => {
+          // Falls hochpräzises GPS fehlschlägt (z.B. am PC oder bei Timeout), auf Standardgenauigkeit ausweichen
+          if (highAccuracy && (err.code === 2 || err.code === 3)) {
+            tryGetPosition(false);
+            return;
+          }
+
+          let msg = 'Standort konnte nicht ermittelt werden.';
+          if (err.code === 1) {
+            msg = 'Standort-Berechtigung verweigert. Bitte im Browser erlauben oder Ort manuell eingeben.';
+          } else if (err.code === 2) {
+            msg = 'Position derzeit nicht ermittelbar. Bitte Ortssuche oben nutzen.';
+          } else if (err.code === 3) {
+            msg = 'Standortabfrage dauerte zu lange. Bitte erneut versuchen.';
+          }
+          setLocationError(msg);
+          setIsLoadingLocation(false);
+        },
+        {
+          enableHighAccuracy: highAccuracy,
+          timeout: highAccuracy ? 6000 : 8000,
+          maximumAge: 60000,
+        }
+      );
+    };
+
+    tryGetPosition(true);
   }, []);
 
   // Beim Start einmal GPS anfordern
@@ -91,7 +105,7 @@ export const App: React.FC = () => {
     setIsLoadingStations(true);
     setFetchError(null);
     try {
-      const data = await fetchStations(coords, radiusKm, sortMode);
+      const data = await fetchStations(coords, radiusKm);
       setStations(data);
       setLastUpdated(new Date());
     } catch (err: unknown) {
@@ -100,7 +114,7 @@ export const App: React.FC = () => {
     } finally {
       setIsLoadingStations(false);
     }
-  }, [coords, radiusKm, sortMode]);
+  }, [coords, radiusKm]);
 
   useEffect(() => {
     loadStationsData();
