@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, SlidersHorizontal, MapPin, Navigation, ArrowUpDown, X, Loader2 } from 'lucide-react';
+import { Search, SlidersHorizontal, MapPin, Navigation, ArrowUpDown, X, Loader2, Star } from 'lucide-react';
 import type { SortMode, Coordinates } from '../types';
 import { searchAddress, type GeocodeResult } from '../services/api';
 
@@ -16,6 +16,9 @@ interface SearchAndFiltersProps {
   onSelectCoords: (coords: Coordinates) => void;
   onRefreshLocation: () => void;
   isLoadingLocation: boolean;
+  onlyFavorites: boolean;
+  onOnlyFavoritesChange: (val: boolean) => void;
+  favoriteCount: number;
 }
 
 export const SearchAndFilters: React.FC<SearchAndFiltersProps> = ({
@@ -31,6 +34,9 @@ export const SearchAndFilters: React.FC<SearchAndFiltersProps> = ({
   onSelectCoords,
   onRefreshLocation,
   isLoadingLocation,
+  onlyFavorites,
+  onOnlyFavoritesChange,
+  favoriteCount,
 }) => {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showLocationSearch, setShowLocationSearch] = useState(false);
@@ -167,9 +173,28 @@ export const SearchAndFilters: React.FC<SearchAndFiltersProps> = ({
           )}
         </div>
 
+        {/* Favoriten Filter Button */}
+        <button
+          onClick={() => onOnlyFavoritesChange(!onlyFavorites)}
+          className={`px-3 py-2.5 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition cursor-pointer shrink-0 ${
+            onlyFavorites
+              ? 'bg-amber-500/20 border-amber-500/60 text-amber-300 shadow-sm'
+              : 'bg-slate-800/80 border-slate-700/70 text-slate-300 hover:text-amber-400'
+          }`}
+          title="Nur gespeicherte Favoriten anzeigen"
+        >
+          <Star className={`w-4 h-4 ${onlyFavorites ? 'fill-amber-400 text-amber-400' : 'text-slate-400'}`} />
+          <span className="hidden sm:inline">Favoriten</span>
+          {favoriteCount > 0 && (
+            <span className="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.2 rounded-full font-bold">
+              {favoriteCount}
+            </span>
+          )}
+        </button>
+
         <button
           onClick={() => setShowAdvanced(!showAdvanced)}
-          className={`px-3 py-2.5 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition cursor-pointer ${
+          className={`px-3 py-2.5 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition cursor-pointer shrink-0 ${
             showAdvanced || radiusKm !== 5 || onlyOpen
               ? 'bg-blue-600/20 border-blue-500 text-blue-400'
               : 'bg-slate-800/80 border-slate-700/70 text-slate-300 hover:text-white'

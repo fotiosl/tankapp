@@ -1,4 +1,4 @@
-﻿export default async function handler(req, res) {
+export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
@@ -15,9 +15,12 @@
   }
 
   const apiKey =
-    process.env.VITE_TANKERKOENIG_API_KEY ||
     process.env.TANKERKOENIG_API_KEY ||
-    '00000000-0000-0000-0000-000000000002';
+    process.env.VITE_TANKERKOENIG_API_KEY;
+
+  if (!apiKey) {
+    return res.status(500).json({ ok: false, message: 'Server-Konfiguration fehlt: TANKERKOENIG_API_KEY nicht gesetzt.' });
+  }
 
   const clampedRadius = Math.min(Math.max(Number(rad) || 5, 1), 25);
   const url = `https://creativecommons.tankerkoenig.de/json/list.php?lat=${lat}&lng=${lng}&rad=${clampedRadius}&sort=dist&type=all&apikey=${apiKey}`;

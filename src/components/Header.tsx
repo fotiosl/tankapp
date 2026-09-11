@@ -1,13 +1,20 @@
 import React from 'react';
-import { Fuel, KeyRound, Sparkles, Smartphone } from 'lucide-react';
+import { Fuel, KeyRound, Sparkles, Smartphone, Bell, BellRing } from 'lucide-react';
 import { isUsingDemoKey, hasEnvApiKey } from '../services/api';
 
 interface HeaderProps {
   onOpenSettings: () => void;
   onOpenInstallGuide: () => void;
+  onOpenPriceAlert: () => void;
+  isAlertActive?: boolean;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onOpenSettings, onOpenInstallGuide }) => {
+export const Header: React.FC<HeaderProps> = ({
+  onOpenSettings,
+  onOpenInstallGuide,
+  onOpenPriceAlert,
+  isAlertActive = false,
+}) => {
   const isDemo = isUsingDemoKey();
 
   return (
@@ -42,6 +49,18 @@ export const Header: React.FC<HeaderProps> = ({ onOpenSettings, onOpenInstallGui
               <span className="sm:hidden font-medium">Demo</span>
             </button>
           )}
+
+          <button
+            onClick={onOpenPriceAlert}
+            className={`p-2 rounded-xl border transition-colors cursor-pointer flex items-center justify-center ${
+              isAlertActive
+                ? 'bg-blue-600/20 border-blue-500/60 text-blue-400 shadow-sm'
+                : 'text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-700/80 border-slate-700/60'
+            }`}
+            title="Wunschpreis-Alarm & Tank-Rechner"
+          >
+            {isAlertActive ? <BellRing className="w-5 h-5 text-sky-400" /> : <Bell className="w-5 h-5 text-slate-300" />}
+          </button>
 
           <button
             onClick={onOpenInstallGuide}

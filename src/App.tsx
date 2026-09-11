@@ -7,7 +7,7 @@ import {
   SearchX,
   Compass,
 } from 'lucide-react';
-import type { Coordinates, FuelType, SortMode, Station } from './types';
+import type { Coordinates, FuelType, PriceAlert, SortMode, Station, UserSettings } from './types';
 import { fetchStations } from './services/api';
 import { Header } from './components/Header';
 import { FuelSelector } from './components/FuelSelector';
@@ -16,7 +16,10 @@ import { StationCard } from './components/StationCard';
 import { MapView } from './components/MapView';
 import { SettingsModal } from './components/SettingsModal';
 import { PWAInstallGuideModal } from './components/PWAInstallGuideModal';
+import { PriceAlertModal } from './components/PriceAlertModal';
 import { getFuelPrice } from './utils/formatters';
+import { DEFAULT_USER_SETTINGS } from './utils/calculator';
+import { usePullToRefresh } from './hooks/usePullToRefresh';
 
 // Standard-Koordinaten (Berlin Brandenburger Tor), falls GPS noch nicht erlaubt wurde
 const DEFAULT_COORDS: Coordinates = {
@@ -28,10 +31,67 @@ const DEFAULT_COORDS: Coordinates = {
 export const App: React.FC = () => {
   const [fuelType, setFuelType] = useState<FuelType>('diesel');
   const [searchTerm, setSearchTerm] = useState('');
-  const [radiusKm, setRadiusKm] = useState<number>(5); // Standard wie gewünscht 5 km
+  const [radiusKm, setRadiusKm] = useState<number>(5); // Standard 5 km
   const [sortMode, setSortMode] = useState<SortMode>('price');
   const [onlyOpen, setOnlyOpen] = useState(true);
+  const [onlyFavorites, setOnlyFavorites] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
+
+  // Favoriten im LocalStorage
+  const [favoriteIds, setFavoriteIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('tankapp_favorites');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const toggleFavorite = useCallback((stationId: string) => {
+    setFavoriteIds((prev) => {
+      const next = prev.includes(stationId)
+        ? prev.filter((id) => id !== stationId)
+        : [...prev, stationId];
+      try {
+        localStorage.setItem('tankapp_favorites', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  // User-Einstellungen für Umweg-Rechner
+  const [userSettings, setUserSettings] = useState<UserSettings>(() => {
+    try {
+      const saved = localStorage.getItem('tankapp_user_settings');
+      return saved ? JSON.parse(saved) : DEFAULT_USER_SETTINGS;
+    } catch {
+      return DEFAULT_USER_SETTINGS;
+    }
+  });
+
+  const handleSaveUserSettings = (newSettings: UserSettings) => {
+    setUserSettings(newSettings);
+    try {
+      localStorage.setItem('tankapp_user_settings', JSON.stringify(newSettings));
+    } catch {}
+  };
+
+  // Wunschpreis-Alarm
+  const [priceAlert, setPriceAlert] = useState<PriceAlert>(() => {
+    try {
+      const saved = localStorage.getItem('tankapp_price_alert');
+      return saved ? JSON.parse(saved) : { enabled: false, fuelType: 'diesel', targetPrice: 1.609 };
+    } catch {
+      return { enabled: false, fuelType: 'diesel', targetPrice: 1.609 };
+    }
+  });
+
+  const handleSavePriceAlert = (alert: PriceAlert) => {
+    setPriceAlert(alert);
+    try {
+      localStorage.setItem('tankapp_price_alert', JSON.stringify(alert));
+    } catch {}
+  };
 
   const [coords, setCoords] = useState<Coordinates>(DEFAULT_COORDS);
   const [hasResolvedInitialLocation, setHasResolvedInitialLocation] = useState(false);
@@ -45,6 +105,7 @@ export const App: React.FC = () => {
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isInstallGuideOpen, setIsInstallGuideOpen] = useState(false);
+  const [isPriceAlertOpen, setIsPriceAlertOpen] = useState(false);
 
   // GPS-Standort abrufen (mit automatischem Fallback für Desktop/WLAN)
   const requestCurrentLocation = useCallback(() => {
@@ -71,7 +132,6 @@ export const App: React.FC = () => {
           setHasResolvedInitialLocation(true);
         },
         (err) => {
-          // Falls hochpräzises GPS fehlschlägt (z.B. am PC oder bei Timeout), auf Standardgenauigkeit ausweichen
           if (highAccuracy && (err.code === 2 || err.code === 3)) {
             tryGetPosition(false);
             return;
@@ -100,12 +160,11 @@ export const App: React.FC = () => {
     tryGetPosition(true);
   }, []);
 
-  // Beim Start einmal GPS anfordern
   useEffect(() => {
     requestCurrentLocation();
   }, [requestCurrentLocation]);
 
-  // Tankstellen-Daten von Tankerkönig laden
+  // Tankstellen-Daten laden
   const loadStationsData = useCallback(async () => {
     setIsLoadingStations(true);
     setFetchError(null);
@@ -121,12 +180,47 @@ export const App: React.FC = () => {
     }
   }, [coords, radiusKm]);
 
-  // Erst laden, wenn der Start-Standort ermittelt wurde (verhindert doppelten API-Aufruf Berlin + GPS)
+  // Erst laden, wenn der Start-Standort initial ermittelt wurde
   useEffect(() => {
     if (hasResolvedInitialLocation) {
       loadStationsData();
     }
   }, [hasResolvedInitialLocation, loadStationsData]);
+
+  // Pull-to-Refresh auf mobilen Endgeräten
+  const { pullDistance, isRefreshing: isPullRefreshing, isTriggered } = usePullToRefresh({
+    onRefresh: loadStationsData,
+  });
+
+  // Wunschpreis-Prüfung & Notification
+  useEffect(() => {
+    if (!priceAlert.enabled || stations.length === 0) return;
+    if (typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') return;
+
+    let cheapestHit: { name: string; price: number } | null = null;
+    for (const s of stations) {
+      const p = getFuelPrice(s, priceAlert.fuelType);
+      if (p !== null && p <= priceAlert.targetPrice) {
+        if (!cheapestHit || p < cheapestHit.price) {
+          cheapestHit = { name: s.name, price: p };
+        }
+      }
+    }
+
+    if (cheapestHit) {
+      const lastNotified = localStorage.getItem('tankapp_last_alert_time');
+      const now = Date.now();
+      if (!lastNotified || now - Number(lastNotified) > 1000 * 60 * 60 * 4) {
+        try {
+          new Notification(`⛽ Wunschpreis erreicht: ${cheapestHit.price.toFixed(3).replace('.', ',')} €!`, {
+            body: `${cheapestHit.name} hat deinen Wunschpreis unterschritten!`,
+            icon: '/icon-192.svg',
+          });
+          localStorage.setItem('tankapp_last_alert_time', now.toString());
+        } catch {}
+      }
+    }
+  }, [stations, priceAlert]);
 
   // Gefilterte und sortierte Tankstellen
   const filteredStations = useMemo(() => {
@@ -134,6 +228,11 @@ export const App: React.FC = () => {
 
     return stations
       .filter((station) => {
+        // Favoriten Filter
+        if (onlyFavorites && !favoriteIds.includes(station.id)) {
+          return false;
+        }
+
         // Suchfilter nach Name oder Marke
         if (term) {
           const nameMatch = station.name?.toLowerCase().includes(term);
@@ -154,24 +253,22 @@ export const App: React.FC = () => {
         const priceB = getFuelPrice(b, fuelType);
 
         if (sortMode === 'price') {
-          // Günstigste Preise zuerst
           if (priceA !== null && priceB !== null) {
             if (Math.abs(priceA - priceB) > 0.0001) {
               return priceA - priceB;
             }
-            return a.dist - b.dist; // bei gleichem Preis: nähere Station zuerst
+            return a.dist - b.dist;
           }
           if (priceA !== null) return -1;
           if (priceB !== null) return 1;
           return a.dist - b.dist;
         }
 
-        // Nach Distanz sortieren
         return a.dist - b.dist;
       });
-  }, [stations, searchTerm, onlyOpen, sortMode, fuelType]);
+  }, [stations, searchTerm, onlyOpen, onlyFavorites, favoriteIds, sortMode, fuelType]);
 
-  // Minimaler Preis für den aktuell ausgewählten Kraftstoff
+  // Minimaler Preis für den ausgewählten Kraftstoff
   const minPrice = useMemo(() => {
     let min: number | null = null;
     filteredStations.forEach((s) => {
@@ -183,20 +280,58 @@ export const App: React.FC = () => {
     return min;
   }, [filteredStations, fuelType]);
 
+  // Nächstgelegene Station für Umweg-Berechnung
+  const closestStation = useMemo(() => {
+    return (
+      stations
+        .filter((s) => s.isOpen && getFuelPrice(s, fuelType) !== null)
+        .sort((a, b) => a.dist - b.dist)[0] || null
+    );
+  }, [stations, fuelType]);
+
+  const closestStationPrice = useMemo(() => {
+    return closestStation ? getFuelPrice(closestStation, fuelType) : null;
+  }, [closestStation, fuelType]);
+
+  const minDist = closestStation ? closestStation.dist : 0;
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased selection:bg-blue-600 selection:text-white">
       {/* Header */}
       <Header
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenInstallGuide={() => setIsInstallGuideOpen(true)}
+        onOpenPriceAlert={() => setIsPriceAlertOpen(true)}
+        isAlertActive={priceAlert.enabled}
       />
 
       {/* Main Container */}
       <main className="flex-1 max-w-2xl w-full mx-auto px-4 py-3 space-y-3.5 pb-24">
+        {/* Pull to Refresh Indicator */}
+        {pullDistance > 0 && (
+          <div
+            className="flex items-center justify-center gap-2 text-xs text-slate-300 font-semibold py-1.5 transition-all"
+            style={{ opacity: Math.min(pullDistance / 50, 1) }}
+          >
+            <RefreshCw
+              className={`w-4 h-4 text-blue-400 ${
+                isTriggered || isPullRefreshing ? 'animate-spin text-emerald-400' : ''
+              }`}
+            />
+            <span>
+              {isPullRefreshing
+                ? 'Preise werden aktualisiert...'
+                : isTriggered
+                ? 'Loslassen zum Aktualisieren'
+                : 'Nach unten ziehen...'}
+            </span>
+          </div>
+        )}
+
         {/* Kraftstoff-Auswahl (Diesel, Super E10, Super E5) */}
         <FuelSelector selectedFuel={fuelType} onSelectFuel={setFuelType} />
 
-        {/* Suchleiste, Radius-Slider (Standard 5km) und Standort-Auswahl */}
+        {/* Suchleiste, Favoriten, Radius & Filter */}
         <SearchAndFilters
           searchTerm={searchTerm}
           onSearchTermChange={setSearchTerm}
@@ -210,6 +345,9 @@ export const App: React.FC = () => {
           onSelectCoords={(newCoords) => setCoords(newCoords)}
           onRefreshLocation={requestCurrentLocation}
           isLoadingLocation={isLoadingLocation}
+          onlyFavorites={onlyFavorites}
+          onOnlyFavoritesChange={setOnlyFavorites}
+          favoriteCount={favoriteIds.length}
         />
 
         {/* Fehler-Meldung bei GPS */}
@@ -233,7 +371,7 @@ export const App: React.FC = () => {
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold text-slate-300">
               {filteredStations.length}{' '}
-              {filteredStations.length === 1 ? 'Tankstelle' : 'Tankstellen'} gefunden
+              {filteredStations.length === 1 ? 'Tankstelle' : 'Tankstellen'} {onlyFavorites ? 'in Favoriten' : 'gefunden'}
             </span>
             {lastUpdated && (
               <span className="text-[10px] text-slate-400">
@@ -285,12 +423,6 @@ export const App: React.FC = () => {
               >
                 Erneut versuchen
               </button>
-              <button
-                onClick={() => setIsSettingsOpen(true)}
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-lg text-xs cursor-pointer"
-              >
-                API-Key prüfen
-              </button>
             </div>
           </div>
         )}
@@ -328,6 +460,11 @@ export const App: React.FC = () => {
                   station={station}
                   selectedFuel={fuelType}
                   minPrice={minPrice}
+                  minDist={minDist}
+                  closestStationPrice={closestStationPrice}
+                  userSettings={userSettings}
+                  isFavorite={favoriteIds.includes(station.id)}
+                  onToggleFavorite={toggleFavorite}
                 />
               ))
             ) : (
@@ -336,19 +473,24 @@ export const App: React.FC = () => {
                 <div className="w-12 h-12 rounded-2xl bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">
                   <SearchX className="w-6 h-6" />
                 </div>
-                <h3 className="font-bold text-slate-200 text-base">Keine Tankstellen gefunden</h3>
+                <h3 className="font-bold text-slate-200 text-base">
+                  {onlyFavorites ? 'Keine Favoriten gefunden' : 'Keine Tankstellen gefunden'}
+                </h3>
                 <p className="text-xs text-slate-400 max-w-xs mx-auto leading-relaxed">
-                  Im Umkreis von {radiusKm} km wurden mit den aktuellen Filtern keine Tankstellen gefunden.
+                  {onlyFavorites
+                    ? 'Tippe auf den Stern bei beliebigen Tankstellen, um sie zu deinen Favoriten hinzuzufügen.'
+                    : `Im Umkreis von ${radiusKm} km wurden mit den aktuellen Filtern keine Tankstellen gefunden.`}
                 </p>
                 <button
                   onClick={() => {
                     setSearchTerm('');
                     setOnlyOpen(false);
+                    setOnlyFavorites(false);
                     setRadiusKm(15);
                   }}
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition cursor-pointer"
                 >
-                  Filter zurücksetzen & Radius vergrößern
+                  {onlyFavorites ? 'Alle Tankstellen anzeigen' : 'Filter zurücksetzen & Radius vergrößern'}
                 </button>
               </div>
             )}
@@ -373,6 +515,17 @@ export const App: React.FC = () => {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         onKeySaved={loadStationsData}
+      />
+
+      {/* Price Alert & Calculator Modal */}
+      <PriceAlertModal
+        isOpen={isPriceAlertOpen}
+        onClose={() => setIsPriceAlertOpen(false)}
+        priceAlert={priceAlert}
+        onSavePriceAlert={handleSavePriceAlert}
+        userSettings={userSettings}
+        onSaveUserSettings={handleSaveUserSettings}
+        currentFuelType={fuelType}
       />
 
       {/* iPhone PWA Install Guide Modal */}

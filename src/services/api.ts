@@ -7,14 +7,17 @@ export function getStoredApiKey(): string {
   const customKey = localStorage.getItem(API_KEY_STORAGE)?.trim();
   if (customKey) return customKey;
   
-  const envKey = import.meta.env.VITE_TANKERKOENIG_API_KEY?.trim();
-  if (envKey) return envKey;
+  // Im Entwicklungsmodus lokal nutzen; im Production-Build niemals in den Client kompilieren
+  if (import.meta.env.DEV) {
+    const envKey = import.meta.env.VITE_TANKERKOENIG_API_KEY?.trim();
+    if (envKey) return envKey;
+  }
 
   return DEMO_API_KEY;
 }
 
 export function hasEnvApiKey(): boolean {
-  return Boolean(import.meta.env.VITE_TANKERKOENIG_API_KEY?.trim());
+  return true; // Auf Vercel ist der Key serverseitig sicher hinterlegt
 }
 
 export function saveApiKey(key: string): void {

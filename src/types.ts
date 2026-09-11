@@ -33,3 +33,15 @@ export interface Coordinates {
   lng: number;
   name?: string;
 }
+
+export interface UserSettings {
+  tankVolumeLiters: number;
+  consumptionPer100Km: number;
+}
+
+export interface PriceAlert {
+  enabled: boolean;
+  fuelType: FuelType;
+  targetPrice: number;
+}
+
