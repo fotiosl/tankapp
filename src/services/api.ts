@@ -102,30 +102,39 @@ export async function fetchStations(
   const apiKey = getStoredApiKey();
   const directUrl = `https://creativecommons.tankerkoenig.de/json/list.php?lat=${coords.lat}&lng=${coords.lng}&rad=${clampedRadius}&sort=dist&type=all&apikey=${apiKey}`;
 
-  const response = await fetch(directUrl);
-  if (!response.ok) {
-    if (response.status === 503) {
-      throw new Error('Rate-Limit erreicht: Bitte kurz warten und erneut versuchen (Fehler 503).');
+  try {
+    const response = await fetch(directUrl);
+    if (!response.ok) {
+      if (response.status === 503) {
+        throw new Error('Rate-Limit erreicht: Bitte kurz warten und erneut versuchen (Fehler 503).');
+      }
+      throw new Error(`Fehler bei der Tankstellen-Abfrage: HTTP ${response.status}`);
     }
-    throw new Error(`Fehler bei der Tankstellen-Abfrage: HTTP ${response.status}`);
+
+    const data: TankerkoenigResponse = await response.json();
+
+    if (!data.ok) {
+      throw new Error(data.message || 'Tankerkönig API meldete einen Fehler.');
+    }
+
+    const stations = data.stations || [];
+    stationCache = {
+      timestamp: now,
+      lat: coords.lat,
+      lng: coords.lng,
+      rad: clampedRadius,
+      stations,
+    };
+
+    return stations;
+  } catch (err: unknown) {
+    if (err instanceof TypeError && err.message.toLowerCase().includes('fetch')) {
+      throw new Error(
+        'Verbindung zu Tankerkönig blockiert (Timeout). Die Tankerkönig-Firewall blockiert IP-Adressen bei zu vielen Anfragen vorübergehend für ca. 10 Minuten. Bitte kurz warten oder am Handy das WLAN ausschalten (Mobilfunk nutzen)!'
+      );
+    }
+    throw err;
   }
-
-  const data: TankerkoenigResponse = await response.json();
-
-  if (!data.ok) {
-    throw new Error(data.message || 'Tankerkönig API meldete einen Fehler.');
-  }
-
-  const stations = data.stations || [];
-  stationCache = {
-    timestamp: now,
-    lat: coords.lat,
-    lng: coords.lng,
-    rad: clampedRadius,
-    stations,
-  };
-
-  return stations;
 }
 
 export interface GeocodeResult {
