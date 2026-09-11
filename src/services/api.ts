@@ -13,6 +13,10 @@ export function getStoredApiKey(): string {
   return DEMO_API_KEY;
 }
 
+export function hasEnvApiKey(): boolean {
+  return Boolean(import.meta.env.VITE_TANKERKOENIG_API_KEY?.trim());
+}
+
 export function saveApiKey(key: string): void {
   const cleanKey = key.trim();
   if (!cleanKey) {

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Fuel, KeyRound, Sparkles, Smartphone } from 'lucide-react';
-import { isUsingDemoKey } from '../services/api';
+import { isUsingDemoKey, hasEnvApiKey } from '../services/api';
 
 interface HeaderProps {
   onOpenSettings: () => void;
@@ -51,13 +51,15 @@ export const Header: React.FC<HeaderProps> = ({ onOpenSettings, onOpenInstallGui
             <Smartphone className="w-5 h-5 text-sky-400" />
           </button>
 
-          <button
-            onClick={onOpenSettings}
-            className="p-2 text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-700/80 rounded-xl border border-slate-700/60 transition-colors cursor-pointer flex items-center justify-center"
-            title="Einstellungen & API-Key"
-          >
-            <KeyRound className="w-5 h-5 text-slate-300" />
-          </button>
+          {(!hasEnvApiKey() || isDemo) && (
+            <button
+              onClick={onOpenSettings}
+              className="p-2 text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-700/80 rounded-xl border border-slate-700/60 transition-colors cursor-pointer flex items-center justify-center"
+              title="API-Key Einstellungen"
+            >
+              <KeyRound className="w-5 h-5 text-slate-300" />
+            </button>
+          )}
         </div>
       </div>
     </header>

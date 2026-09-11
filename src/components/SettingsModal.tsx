@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { X, KeyRound, ExternalLink, Check, AlertCircle, Loader2, Sparkles } from 'lucide-react';
-import { getStoredApiKey, saveApiKey, validateApiKey, DEMO_API_KEY } from '../services/api';
+import { X, KeyRound, ExternalLink, Check, AlertCircle, Loader2, Sparkles, ShieldCheck, Eye, EyeOff } from 'lucide-react';
+import { getStoredApiKey, saveApiKey, validateApiKey, DEMO_API_KEY, hasEnvApiKey } from '../services/api';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -10,6 +10,7 @@ interface SettingsModalProps {
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onKeySaved }) => {
   const [apiKey, setApiKey] = useState(getStoredApiKey() === DEMO_API_KEY ? '' : getStoredApiKey());
+  const [showKey, setShowKey] = useState(false);
   const [status, setStatus] = useState<{ type: 'idle' | 'loading' | 'success' | 'error'; message?: string }>({
     type: 'idle',
   });
@@ -81,25 +82,37 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
           </button>
         </div>
 
-        {/* Info Box */}
-        <div className="bg-blue-950/40 border border-blue-800/40 rounded-2xl p-4 text-xs text-blue-200/90 space-y-2">
-          <div className="font-semibold text-blue-300 flex items-center gap-1.5">
-            <Sparkles className="w-4 h-4 text-blue-400" />
-            Kostenloser persönlicher API-Key
+        {/* Vercel or Info Box */}
+        {hasEnvApiKey() ? (
+          <div className="bg-emerald-950/40 border border-emerald-800/50 rounded-2xl p-4 text-xs text-emerald-200/90 flex items-start gap-3">
+            <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-semibold text-emerald-300">API-Key über Vercel aktiv</p>
+              <p className="text-emerald-400/80 leading-relaxed text-[11px]">
+                Dein Tankerkönig-Key ist als Umgebungsvariable im Deployment hinterlegt und abhörsicher aktiv.
+              </p>
+            </div>
           </div>
-          <p className="leading-relaxed">
-            Für echte, minutengenaue Spritpreise benötigst du einen kostenlosen Tankerkönig API-Key.
-          </p>
-          <a
-            href="https://creativecommons.tankerkoenig.de/"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 text-sky-400 hover:text-sky-300 font-bold underline cursor-pointer"
-          >
-            Hier in 1 Minute kostenlos anfordern
-            <ExternalLink className="w-3.5 h-3.5" />
-          </a>
-        </div>
+        ) : (
+          <div className="bg-blue-950/40 border border-blue-800/40 rounded-2xl p-4 text-xs text-blue-200/90 space-y-2">
+            <div className="font-semibold text-blue-300 flex items-center gap-1.5">
+              <Sparkles className="w-4 h-4 text-blue-400" />
+              Kostenloser persönlicher API-Key
+            </div>
+            <p className="leading-relaxed">
+              Für echte, minutengenaue Spritpreise benötigst du einen kostenlosen Tankerkönig API-Key.
+            </p>
+            <a
+              href="https://creativecommons.tankerkoenig.de/"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 text-sky-400 hover:text-sky-300 font-bold underline cursor-pointer"
+            >
+              Hier in 1 Minute kostenlos anfordern
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          </div>
+        )}
 
         {/* Input Form */}
         <form onSubmit={handleSave} className="space-y-4">
@@ -107,15 +120,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
             <label className="block text-xs font-semibold text-slate-300 mb-1.5">
               Persönlicher API-Key
             </label>
-            <input
-              type="text"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="z.B. xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-              className="w-full bg-slate-800/90 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono"
-            />
+            <div className="relative">
+              <input
+                type={showKey ? 'text' : 'password'}
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="z.B. xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                className="w-full bg-slate-800/90 border border-slate-700 rounded-xl pl-3.5 pr-11 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono tracking-wider"
+              />
+              <button
+                type="button"
+                onClick={() => setShowKey(!showKey)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 p-1 cursor-pointer"
+                title={showKey ? 'Key verbergen' : 'Key anzeigen'}
+              >
+                {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
             <p className="text-[11px] text-slate-400 mt-1">
-              Wird sicher lokal auf deinem Gerät gespeichert.
+              Wird geschützt behandelt und nicht im Klartext preisgegeben.
             </p>
           </div>
 
