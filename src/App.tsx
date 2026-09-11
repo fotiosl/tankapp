@@ -34,7 +34,8 @@ export const App: React.FC = () => {
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
 
   const [coords, setCoords] = useState<Coordinates>(DEFAULT_COORDS);
-  const [isLoadingLocation, setIsLoadingLocation] = useState(false);
+  const [hasResolvedInitialLocation, setHasResolvedInitialLocation] = useState(false);
+  const [isLoadingLocation, setIsLoadingLocation] = useState(true);
   const [locationError, setLocationError] = useState<string | null>(null);
 
   const [stations, setStations] = useState<Station[]>([]);
@@ -49,6 +50,8 @@ export const App: React.FC = () => {
   const requestCurrentLocation = useCallback(() => {
     if (!('geolocation' in navigator)) {
       setLocationError('Standortermittlung wird von diesem Browser nicht unterstützt.');
+      setHasResolvedInitialLocation(true);
+      setIsLoadingLocation(false);
       return;
     }
 
@@ -65,6 +68,7 @@ export const App: React.FC = () => {
           });
           setLocationError(null);
           setIsLoadingLocation(false);
+          setHasResolvedInitialLocation(true);
         },
         (err) => {
           // Falls hochpräzises GPS fehlschlägt (z.B. am PC oder bei Timeout), auf Standardgenauigkeit ausweichen
@@ -83,10 +87,11 @@ export const App: React.FC = () => {
           }
           setLocationError(msg);
           setIsLoadingLocation(false);
+          setHasResolvedInitialLocation(true);
         },
         {
           enableHighAccuracy: highAccuracy,
-          timeout: highAccuracy ? 6000 : 8000,
+          timeout: highAccuracy ? 5000 : 7000,
           maximumAge: 60000,
         }
       );
@@ -116,9 +121,12 @@ export const App: React.FC = () => {
     }
   }, [coords, radiusKm]);
 
+  // Erst laden, wenn der Start-Standort ermittelt wurde (verhindert doppelten API-Aufruf Berlin + GPS)
   useEffect(() => {
-    loadStationsData();
-  }, [loadStationsData]);
+    if (hasResolvedInitialLocation) {
+      loadStationsData();
+    }
+  }, [hasResolvedInitialLocation, loadStationsData]);
 
   // Gefilterte und sortierte Tankstellen
   const filteredStations = useMemo(() => {

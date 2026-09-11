@@ -48,19 +48,61 @@ export async function validateApiKey(key: string): Promise<{ valid: boolean; mes
   }
 }
 
+interface StationCacheEntry {
+  timestamp: number;
+  lat: number;
+  lng: number;
+  rad: number;
+  stations: Station[];
+}
+
+let stationCache: StationCacheEntry | null = null;
+
 export async function fetchStations(
   coords: Coordinates,
   radKm: number = 5
 ): Promise<Station[]> {
-  const apiKey = getStoredApiKey();
-  // Tankerkönig erlaubt maximal 25km pro Abfrage
   const clampedRadius = Math.min(Math.max(radKm, 1), 25);
-  
-  // Wichtig: Tankerkönig verlangt bei type=all zwingend sort=dist (oder kein sort-Parameter).
-  // Die Sortierung nach Günstigste/Distanz erfolgt clientseitig in der App nach Kraftstoffsorte.
-  const url = `https://creativecommons.tankerkoenig.de/json/list.php?lat=${coords.lat}&lng=${coords.lng}&rad=${clampedRadius}&sort=dist&type=all&apikey=${apiKey}`;
+  const now = Date.now();
 
-  const response = await fetch(url);
+  // 1. Client-seitiger Cache (verhindert Mehrfachabfragen bei schnellem Tab-/Filterwechsel)
+  if (
+    stationCache &&
+    now - stationCache.timestamp < 20000 &&
+    Math.abs(stationCache.lat - coords.lat) < 0.003 &&
+    Math.abs(stationCache.lng - coords.lng) < 0.003 &&
+    stationCache.rad === clampedRadius
+  ) {
+    return stationCache.stations;
+  }
+
+  // 2. Primär: Vercel Serverless Function (/api/stations) nutzen
+  // Vorteil: Keine IP-Sperren, geschützter Key, Edge-Caching
+  try {
+    const proxyUrl = `/api/stations?lat=${coords.lat}&lng=${coords.lng}&rad=${clampedRadius}`;
+    const proxyRes = await fetch(proxyUrl);
+    if (proxyRes.ok) {
+      const data: TankerkoenigResponse = await proxyRes.json();
+      if (data.ok && Array.isArray(data.stations)) {
+        stationCache = {
+          timestamp: now,
+          lat: coords.lat,
+          lng: coords.lng,
+          rad: clampedRadius,
+          stations: data.stations,
+        };
+        return data.stations;
+      }
+    }
+  } catch {
+    // Falls Serverless Function lokal nicht erreichbar ist, Fallback auf Direktaufruf
+  }
+
+  // 3. Fallback: Direkter Aufruf der Tankerkönig API
+  const apiKey = getStoredApiKey();
+  const directUrl = `https://creativecommons.tankerkoenig.de/json/list.php?lat=${coords.lat}&lng=${coords.lng}&rad=${clampedRadius}&sort=dist&type=all&apikey=${apiKey}`;
+
+  const response = await fetch(directUrl);
   if (!response.ok) {
     if (response.status === 503) {
       throw new Error('Rate-Limit erreicht: Bitte kurz warten und erneut versuchen (Fehler 503).');
@@ -74,7 +116,16 @@ export async function fetchStations(
     throw new Error(data.message || 'Tankerkönig API meldete einen Fehler.');
   }
 
-  return data.stations || [];
+  const stations = data.stations || [];
+  stationCache = {
+    timestamp: now,
+    lat: coords.lat,
+    lng: coords.lng,
+    rad: clampedRadius,
+    stations,
+  };
+
+  return stations;
 }
 
 export interface GeocodeResult {
