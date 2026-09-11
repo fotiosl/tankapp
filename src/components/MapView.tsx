@@ -10,6 +10,8 @@ interface MapViewProps {
   selectedFuel: FuelType;
   minPrice: number | null;
   onCenterUser: () => void;
+  favoriteIds?: string[];
+  onToggleFavorite?: (stationId: string) => void;
 }
 
 export const MapView: React.FC<MapViewProps> = ({
@@ -18,6 +20,8 @@ export const MapView: React.FC<MapViewProps> = ({
   selectedFuel,
   minPrice,
   onCenterUser,
+  favoriteIds = [],
+  onToggleFavorite,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -85,13 +89,14 @@ export const MapView: React.FC<MapViewProps> = ({
     markersLayerRef.current.clearLayers();
 
     stations.forEach((station) => {
+      const isFav = favoriteIds.includes(station.id);
       const price = getFuelPrice(station, selectedFuel);
       const isCheapest =
         price !== null && minPrice !== null && Math.abs(price - minPrice) < 0.001;
 
       const priceText = price ? `${price.toFixed(2)}€` : 'k.A.';
       const badgeBg = isCheapest ? '#10b981' : station.isOpen ? '#1e293b' : '#64748b';
-      const badgeBorder = isCheapest ? '#34d399' : '#475569';
+      const badgeBorder = isFav ? '#f59e0b' : isCheapest ? '#34d399' : '#475569';
 
       const customIcon = L.divIcon({
         className: 'price-marker',
@@ -104,25 +109,31 @@ export const MapView: React.FC<MapViewProps> = ({
             font-family: -apple-system, sans-serif;
             padding: 3px 6px;
             border-radius: 8px;
-            border: 1.5px solid ${badgeBorder};
+            border: ${isFav ? '2px solid #f59e0b' : `1.5px solid ${badgeBorder}`};
             box-shadow: 0 4px 8px rgba(0,0,0,0.35);
             white-space: nowrap;
             display: flex;
             align-items: center;
-            gap: 3px;
+            gap: 3.5px;
           ">
+            ${isFav ? '<span style="color: #f59e0b; font-size: 12px; line-height: 1;">★</span>' : ''}
             <span>${station.brand || station.name.split(' ')[0]}</span>
             <span style="background: rgba(0,0,0,0.3); padding: 1px 4px; border-radius: 4px; color: ${isCheapest ? '#a7f3d0' : '#38bdf8'}">${priceText}</span>
           </div>
         `,
-        iconSize: [80, 26],
-        iconAnchor: [40, 13],
+        iconSize: [isFav ? 88 : 80, 26],
+        iconAnchor: [isFav ? 44 : 40, 13],
       });
 
+      const favBtnBg = isFav ? 'rgba(245, 158, 11, 0.2)' : '#1e293b';
+      const favBtnBorder = isFav ? 'rgba(245, 158, 11, 0.7)' : 'rgba(245, 158, 11, 0.4)';
+      const favBtnColor = isFav ? '#fbbf24' : '#fde68a';
+
       const popupContent = `
-        <div style="font-family: -apple-system, sans-serif; min-width: 180px; padding: 2px;">
-          <div style="font-size: 13px; font-weight: bold; color: #f8fafc; margin-bottom: 2px;">
-            ${station.name}
+        <div style="font-family: -apple-system, sans-serif; min-width: 190px; padding: 2px;">
+          <div style="font-size: 13px; font-weight: bold; color: #f8fafc; margin-bottom: 2px; display: flex; align-items: center; justify-content: space-between; gap: 4px;">
+            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${station.name}</span>
+            ${isFav ? '<span style="color: #f59e0b; font-size: 13px;">★</span>' : ''}
           </div>
           <div style="font-size: 11px; color: #94a3b8; margin-bottom: 6px;">
             ${station.street} ${station.houseNumber || ''}, ${station.place} (${station.dist.toFixed(1)} km)
@@ -133,12 +144,21 @@ export const MapView: React.FC<MapViewProps> = ({
               ${price ? `${price.toFixed(3)} €` : 'Keine Angabe'}
             </span>
           </div>
-          <button 
-            onclick="window.openNavTo('${station.lat}', '${station.lng}', '${encodeURIComponent(station.name)}')"
-            style="width: 100%; background: #2563eb; color: white; border: none; padding: 6px 10px; border-radius: 8px; font-size: 12px; font-weight: bold; cursor: pointer;"
-          >
-            Route starten
-          </button>
+          <div style="display: flex; gap: 6px;">
+            <button 
+              onclick="window.toggleStationFav('${station.id}')"
+              style="flex: 1; background: ${favBtnBg}; color: ${favBtnColor}; border: 1px solid ${favBtnBorder}; padding: 6px 8px; border-radius: 8px; font-size: 11px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 3px;"
+              title="${isFav ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'}"
+            >
+              ${isFav ? '★ Favorit' : '☆ Merken'}
+            </button>
+            <button 
+              onclick="window.openNavTo('${station.lat}', '${station.lng}', '${encodeURIComponent(station.name)}')"
+              style="flex: 1; background: #2563eb; color: white; border: none; padding: 6px 8px; border-radius: 8px; font-size: 11px; font-weight: bold; cursor: pointer;"
+            >
+              Route
+            </button>
+          </div>
         </div>
       `;
 
@@ -146,17 +166,23 @@ export const MapView: React.FC<MapViewProps> = ({
         .addTo(markersLayerRef.current!)
         .bindPopup(popupContent);
     });
-  }, [stations, selectedFuel, minPrice]);
+  }, [stations, selectedFuel, minPrice, favoriteIds]);
 
-  // Hook global handler for popup route button
+  // Hook global handler for popup buttons (route & favorite)
   useEffect(() => {
     (window as any).openNavTo = (latStr: string, lngStr: string, nameEsc: string) => {
       openNavigation(parseFloat(latStr), parseFloat(lngStr), decodeURIComponent(nameEsc));
     };
+    (window as any).toggleStationFav = (id: string) => {
+      if (onToggleFavorite) {
+        onToggleFavorite(id);
+      }
+    };
     return () => {
       delete (window as any).openNavTo;
+      delete (window as any).toggleStationFav;
     };
-  }, []);
+  }, [onToggleFavorite]);
 
   const handleCenter = () => {
     if (mapInstanceRef.current) {

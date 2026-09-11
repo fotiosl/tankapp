@@ -29,11 +29,91 @@ const DEFAULT_COORDS: Coordinates = {
 };
 
 export const App: React.FC = () => {
-  const [fuelType, setFuelType] = useState<FuelType>('diesel');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [radiusKm, setRadiusKm] = useState<number>(5); // Standard 5 km
-  const [sortMode, setSortMode] = useState<SortMode>('price');
-  const [onlyOpen, setOnlyOpen] = useState(true);
+  // Kraftstoffart im LocalStorage
+  const [fuelType, setFuelType] = useState<FuelType>(() => {
+    try {
+      const saved = localStorage.getItem('tankapp_fuel_type');
+      if (saved === 'diesel' || saved === 'e10' || saved === 'e5') {
+        return saved;
+      }
+    } catch {}
+    return 'diesel';
+  });
+
+  const handleFuelTypeChange = (newFuel: FuelType) => {
+    setFuelType(newFuel);
+    try {
+      localStorage.setItem('tankapp_fuel_type', newFuel);
+    } catch {}
+  };
+
+  // Suchbegriff (Name / Marke wie Aral) im LocalStorage
+  const [searchTerm, setSearchTerm] = useState<string>(() => {
+    try {
+      return localStorage.getItem('tankapp_search_term') || '';
+    } catch {
+      return '';
+    }
+  });
+
+  const handleSearchTermChange = (newTerm: string) => {
+    setSearchTerm(newTerm);
+    try {
+      localStorage.setItem('tankapp_search_term', newTerm);
+    } catch {}
+  };
+
+  // Suchradius im LocalStorage (Standard 5 km)
+  const [radiusKm, setRadiusKm] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('tankapp_radius_km');
+      if (saved) {
+        const val = Number(saved);
+        if (!isNaN(val) && val >= 1 && val <= 25) return val;
+      }
+    } catch {}
+    return 5;
+  });
+
+  const handleRadiusChange = (newRadius: number) => {
+    setRadiusKm(newRadius);
+    try {
+      localStorage.setItem('tankapp_radius_km', newRadius.toString());
+    } catch {}
+  };
+
+  // Sortierung im LocalStorage
+  const [sortMode, setSortMode] = useState<SortMode>(() => {
+    try {
+      const saved = localStorage.getItem('tankapp_sort_mode');
+      if (saved === 'price' || saved === 'dist') return saved;
+    } catch {}
+    return 'price';
+  });
+
+  const handleSortModeChange = (newSort: SortMode) => {
+    setSortMode(newSort);
+    try {
+      localStorage.setItem('tankapp_sort_mode', newSort);
+    } catch {}
+  };
+
+  // Nur geöffnete im LocalStorage
+  const [onlyOpen, setOnlyOpen] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('tankapp_only_open');
+      if (saved !== null) return saved === 'true';
+    } catch {}
+    return true;
+  });
+
+  const handleOnlyOpenChange = (newOnlyOpen: boolean) => {
+    setOnlyOpen(newOnlyOpen);
+    try {
+      localStorage.setItem('tankapp_only_open', String(newOnlyOpen));
+    } catch {}
+  };
+
   const [onlyFavorites, setOnlyFavorites] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
 
@@ -329,18 +409,18 @@ export const App: React.FC = () => {
         )}
 
         {/* Kraftstoff-Auswahl (Diesel, Super E10, Super E5) */}
-        <FuelSelector selectedFuel={fuelType} onSelectFuel={setFuelType} />
+        <FuelSelector selectedFuel={fuelType} onSelectFuel={handleFuelTypeChange} />
 
         {/* Suchleiste, Favoriten, Radius & Filter */}
         <SearchAndFilters
           searchTerm={searchTerm}
-          onSearchTermChange={setSearchTerm}
+          onSearchTermChange={handleSearchTermChange}
           radiusKm={radiusKm}
-          onRadiusChange={setRadiusKm}
+          onRadiusChange={handleRadiusChange}
           sortMode={sortMode}
-          onSortModeChange={setSortMode}
+          onSortModeChange={handleSortModeChange}
           onlyOpen={onlyOpen}
-          onOnlyOpenChange={setOnlyOpen}
+          onOnlyOpenChange={handleOnlyOpenChange}
           currentCoords={coords}
           onSelectCoords={(newCoords) => setCoords(newCoords)}
           onRefreshLocation={requestCurrentLocation}
@@ -435,6 +515,8 @@ export const App: React.FC = () => {
             selectedFuel={fuelType}
             minPrice={minPrice}
             onCenterUser={requestCurrentLocation}
+            favoriteIds={favoriteIds}
+            onToggleFavorite={toggleFavorite}
           />
         ) : (
           <div className="space-y-3">
@@ -483,10 +565,10 @@ export const App: React.FC = () => {
                 </p>
                 <button
                   onClick={() => {
-                    setSearchTerm('');
-                    setOnlyOpen(false);
+                    handleSearchTermChange('');
+                    handleOnlyOpenChange(false);
                     setOnlyFavorites(false);
-                    setRadiusKm(15);
+                    handleRadiusChange(15);
                   }}
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition cursor-pointer"
                 >

@@ -178,12 +178,12 @@ export const SearchAndFilters: React.FC<SearchAndFiltersProps> = ({
           onClick={() => onOnlyFavoritesChange(!onlyFavorites)}
           className={`px-3 py-2.5 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition cursor-pointer shrink-0 ${
             onlyFavorites
-              ? 'bg-amber-500/20 border-amber-500/60 text-amber-300 shadow-sm'
-              : 'bg-slate-800/80 border-slate-700/70 text-slate-300 hover:text-amber-400'
+              ? 'bg-amber-500/25 border-amber-400/80 text-amber-300 shadow-sm shadow-amber-500/20'
+              : 'bg-slate-800/80 border-slate-700/70 text-slate-300 hover:text-amber-300 hover:border-amber-500/40'
           }`}
           title="Nur gespeicherte Favoriten anzeigen"
         >
-          <Star className={`w-4 h-4 ${onlyFavorites ? 'fill-amber-400 text-amber-400' : 'text-slate-400'}`} />
+          <Star className={`w-4 h-4 transition-colors ${onlyFavorites ? 'fill-amber-400 text-amber-400' : 'text-amber-400/80'}`} />
           <span className="hidden sm:inline">Favoriten</span>
           {favoriteCount > 0 && (
             <span className="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.2 rounded-full font-bold">
@@ -204,6 +204,36 @@ export const SearchAndFilters: React.FC<SearchAndFiltersProps> = ({
           <SlidersHorizontal className="w-4 h-4" />
           <span className="hidden sm:inline">Filter</span>
         </button>
+      </div>
+
+      {/* Beliebte Marken-Schnellfilter (Chips) */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none text-xs">
+        <span className="text-[11px] text-slate-400 font-medium shrink-0 mr-0.5">
+          Marke:
+        </span>
+        {['Aral', 'Shell', 'JET', 'Total', 'Esso', 'HEM', 'star'].map((brand) => {
+          const isSelected = searchTerm.trim().toLowerCase() === brand.toLowerCase();
+          return (
+            <button
+              key={brand}
+              type="button"
+              onClick={() => {
+                if (isSelected) {
+                  onSearchTermChange('');
+                } else {
+                  onSearchTermChange(brand);
+                }
+              }}
+              className={`px-2.5 py-1 rounded-lg font-semibold text-[11px] transition shrink-0 cursor-pointer border ${
+                isSelected
+                  ? 'bg-blue-600 text-white border-blue-400 shadow-sm shadow-blue-600/30'
+                  : 'bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border-slate-700/70 hover:text-white'
+              }`}
+            >
+              {brand}
+            </button>
+          );
+        })}
       </div>
 
       {/* Expandable Filter Box (Radius Slider & Toggles) */}

@@ -124,14 +124,21 @@ export const StationCard: React.FC<StationCardProps> = ({
             {/* Stern Favoriten-Button */}
             <button
               onClick={() => onToggleFavorite(station.id)}
-              className={`p-1.5 rounded-xl border transition cursor-pointer ${
-                isFavorite
-                  ? 'bg-amber-500/20 border-amber-500/50 text-amber-400'
-                  : 'bg-slate-900/60 border-slate-700/60 text-slate-500 hover:text-amber-400'
-              }`}
+              aria-label={isFavorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'}
               title={isFavorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'}
+              className={`p-2 rounded-xl border transition-all duration-200 cursor-pointer flex items-center justify-center shrink-0 ${
+                isFavorite
+                  ? 'bg-amber-500/25 border-amber-400/80 text-amber-400 shadow-sm shadow-amber-500/30 scale-105 ring-1 ring-amber-400/50'
+                  : 'bg-slate-900/90 border-amber-500/35 text-amber-400/75 hover:text-amber-300 hover:bg-amber-500/15 hover:border-amber-400/70 hover:scale-105'
+              }`}
             >
-              <Star className={`w-4 h-4 ${isFavorite ? 'fill-amber-400 text-amber-400' : ''}`} />
+              <Star
+                className={`w-5 h-5 transition-transform ${
+                  isFavorite
+                    ? 'fill-amber-400 text-amber-400'
+                    : 'text-amber-400/80 hover:scale-110'
+                }`}
+              />
             </button>
 
             {/* Hauptpreis */}
