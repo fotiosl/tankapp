@@ -1,7 +1,20 @@
 {
   "name": "tankapp",
-  "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "Moderne, blitzschnelle Spritpreise-PWA für iOS & Desktop mit Echtzeit-Preisen via Tankerkönig (MTS-K), interaktiver Karte, Favoriten und Ersparnisrechner.",
+  "keywords": [
+    "spritpreise",
+    "tankstellen",
+    "tankerkoenig",
+    "mts-k",
+    "pwa",
+    "react19",
+    "vite",
+    "tailwindcss",
+    "leaflet"
+  ],
+  "author": "fotiosl",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
