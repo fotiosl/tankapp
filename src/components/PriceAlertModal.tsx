@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { X, Bell, BellRing, Check, Sliders, Info } from 'lucide-react';
 import type { FuelType, PriceAlert, UserSettings } from '../types';
 
@@ -159,7 +159,7 @@ export const PriceAlertModal: React.FC<PriceAlertModalProps> = ({
                 )}
 
                 <p className="text-[11px] text-slate-400 leading-relaxed">
-                  Du erhältst eine Push-Nachricht, sobald eine Tankstelle in deinem Umkreis deinen Wunschpreis erreicht.
+                  Benachrichtigt dich auf dem Gerät, sobald beim Aktualisieren der Preise eine Tankstelle deinen Wunschpreis unterschreitet.
                 </p>
               </div>
             )}

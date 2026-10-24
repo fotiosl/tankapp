@@ -1,4 +1,4 @@
-import type { Coordinates, Station, TankerkoenigResponse } from '../types';
+import type { Coordinates, Station, StationDetailData, TankerkoenigDetailResponse, TankerkoenigResponse } from '../types';
 
 export const DEMO_API_KEY = '00000000-0000-0000-0000-000000000002';
 const API_KEY_STORAGE = 'tankapp_api_key';
@@ -17,7 +17,11 @@ export function getStoredApiKey(): string {
 }
 
 export function hasEnvApiKey(): boolean {
-  return true; // Auf Vercel ist der Key serverseitig sicher hinterlegt
+  // Wenn lokal oder auf Vercel eine Umgebungsvariable gesetzt ist
+  if (import.meta.env.DEV && import.meta.env.VITE_TANKERKOENIG_API_KEY) {
+    return true;
+  }
+  return true; // Auf Vercel ist der Key serverseitig hinterlegt
 }
 
 export function saveApiKey(key: string): void {
@@ -30,8 +34,24 @@ export function saveApiKey(key: string): void {
 }
 
 export function isUsingDemoKey(key?: string): boolean {
+  const customKey = localStorage.getItem(API_KEY_STORAGE)?.trim();
+  if (customKey) return false;
   const current = key ?? getStoredApiKey();
   return current === DEMO_API_KEY;
+}
+
+export function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371; // Erdradius in km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
 }
 
 export async function validateApiKey(key: string): Promise<{ valid: boolean; message?: string }> {
@@ -60,6 +80,7 @@ interface StationCacheEntry {
 }
 
 let stationCache: StationCacheEntry | null = null;
+const detailCache = new Map<string, { timestamp: number; data: StationDetailData }>();
 
 export async function fetchStations(
   coords: Coordinates,
@@ -80,7 +101,6 @@ export async function fetchStations(
   }
 
   // 2. Primär: Vercel Serverless Function (/api/stations) nutzen
-  // Vorteil: Keine IP-Sperren, geschützter Key, Edge-Caching
   try {
     const proxyUrl = `/api/stations?lat=${coords.lat}&lng=${coords.lng}&rad=${clampedRadius}`;
     const proxyRes = await fetch(proxyUrl);
@@ -140,6 +160,97 @@ export async function fetchStations(
   }
 }
 
+/**
+ * Ruft Detailinformationen (inkl. Öffnungszeiten-Wochenplan) für eine Tankstelle ab
+ */
+export async function fetchStationDetails(stationId: string): Promise<StationDetailData | null> {
+  const cached = detailCache.get(stationId);
+  const now = Date.now();
+  if (cached && now - cached.timestamp < 1000 * 60 * 30) {
+    return cached.data;
+  }
+
+  // 1. Primär: Über Serverless Proxy
+  try {
+    const res = await fetch(`/api/stations?id=${encodeURIComponent(stationId)}`);
+    if (res.ok) {
+      const data: TankerkoenigDetailResponse = await res.json();
+      if (data.ok && data.station) {
+        detailCache.set(stationId, { timestamp: now, data: data.station });
+        return data.station;
+      }
+    }
+  } catch {
+    // Fallback auf Direktaufruf
+  }
+
+  // 2. Fallback: Direkter API Call
+  try {
+    const apiKey = getStoredApiKey();
+    const directUrl = `https://creativecommons.tankerkoenig.de/json/detail.php?id=${encodeURIComponent(stationId)}&apikey=${apiKey}`;
+    const res = await fetch(directUrl);
+    if (res.ok) {
+      const data: TankerkoenigDetailResponse = await res.json();
+      if (data.ok && data.station) {
+        detailCache.set(stationId, { timestamp: now, data: data.station });
+        return data.station;
+      }
+    }
+  } catch {
+    // Ignore error
+  }
+
+  return null;
+}
+
+/**
+ * Sucht Tankstellen entlang einer Route zwischen zwei Orten
+ */
+export async function fetchStationsAlongRoute(
+  start: Coordinates,
+  dest: Coordinates,
+  corridorRadiusKm: number = 4
+): Promise<Station[]> {
+  const totalDist = calculateDistanceKm(start.lat, start.lng, dest.lat, dest.lng);
+  
+  // Wähle Wegpunkte alle ca. 15-20 km (maximal 6 Segmente zur Schonung von Limits)
+  const numSteps = Math.min(Math.max(Math.ceil(totalDist / 18), 2), 6);
+  const waypoints: Coordinates[] = [];
+
+  for (let i = 0; i <= numSteps; i++) {
+    const fraction = i / numSteps;
+    waypoints.push({
+      lat: start.lat + (dest.lat - start.lat) * fraction,
+      lng: start.lng + (dest.lng - start.lng) * fraction,
+    });
+  }
+
+  const results: Station[] = [];
+  const seenIds = new Set<string>();
+
+  // Frage die Wegpunkte sequentiell/gepuffert ab
+  for (const pt of waypoints) {
+    try {
+      const stations = await fetchStations(pt, corridorRadiusKm);
+      for (const s of stations) {
+        if (!seenIds.has(s.id)) {
+          seenIds.add(s.id);
+          // Berechne Distanz relativ zum Startpunkt
+          const distFromStart = calculateDistanceKm(start.lat, start.lng, s.lat, s.lng);
+          results.push({
+            ...s,
+            dist: Math.round(distFromStart * 10) / 10,
+          });
+        }
+      }
+    } catch {
+      // Weiter mit nächstem Wegpunkt
+    }
+  }
+
+  return results;
+}
+
 export interface GeocodeResult {
   lat: number;
   lng: number;
@@ -153,6 +264,7 @@ export async function searchAddress(query: string): Promise<GeocodeResult[]> {
     const res = await fetch(url, {
       headers: {
         'Accept-Language': 'de',
+        'User-Agent': 'TankApp/1.0 (https://github.com/fotiosl/tankapp)',
       }
     });
     if (!res.ok) return [];
@@ -166,3 +278,4 @@ export async function searchAddress(query: string): Promise<GeocodeResult[]> {
     return [];
   }
 }
+

@@ -1,9 +1,10 @@
-import React from 'react';
-import { Navigation, MapPin, CheckCircle2, Star, TrendingDown } from 'lucide-react';
-import type { Station, FuelType, UserSettings } from '../types';
+import React, { useState } from 'react';
+import { Navigation, MapPin, CheckCircle2, Star, TrendingDown, Share2, Clock, Check, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
+import type { Station, FuelType, UserSettings, StationDetailData } from '../types';
 import { formatPriceParts, getFuelPrice, openNavigation } from '../utils/formatters';
 import { getBrandTheme } from '../utils/brandStyles';
 import { calculateNetSavings } from '../utils/calculator';
+import { fetchStationDetails } from '../services/api';
 
 interface StationCardProps {
   station: Station;
@@ -26,6 +27,11 @@ export const StationCard: React.FC<StationCardProps> = ({
   isFavorite,
   onToggleFavorite,
 }) => {
+  const [showDetails, setShowDetails] = useState(false);
+  const [details, setDetails] = useState<StationDetailData | null>(null);
+  const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+  const [copiedShare, setCopiedShare] = useState(false);
+
   const currentPrice = getFuelPrice(station, selectedFuel);
   const priceParts = formatPriceParts(currentPrice);
   const brandTheme = getBrandTheme(station.brand, station.name);
@@ -64,9 +70,46 @@ export const StationCard: React.FC<StationCardProps> = ({
     { type: 'e5', label: 'E5' },
   ].filter((f) => f.type !== selectedFuel) as { type: FuelType; label: string }[];
 
+  const handleShare = async () => {
+    const fuelName = selectedFuel.toUpperCase();
+    const priceStr = currentPrice ? `${currentPrice.toFixed(3).replace('.', ',')} € (${fuelName})` : '';
+    const shareText = `⛽ ${station.name}\n📍 ${station.street} ${station.houseNumber || ''}, ${station.place}\n${priceStr ? `💰 Aktueller Preis: ${priceStr}\n` : ''}`;
+    const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${station.lat},${station.lng}`;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `Spritpreise bei ${station.name}`,
+          text: shareText,
+          url: mapsUrl,
+        });
+      } catch {
+        // User canceled share
+      }
+    } else {
+      try {
+        await navigator.clipboard.writeText(`${shareText}${mapsUrl}`);
+        setCopiedShare(true);
+        setTimeout(() => setCopiedShare(false), 2000);
+      } catch {
+        // Fallback
+      }
+    }
+  };
+
+  const toggleDetails = async () => {
+    if (!showDetails && !details) {
+      setIsLoadingDetails(true);
+      const data = await fetchStationDetails(station.id);
+      setDetails(data);
+      setIsLoadingDetails(false);
+    }
+    setShowDetails((prev) => !prev);
+  };
+
   return (
     <div
-      className={`bg-slate-800/90 rounded-2xl p-4 border transition-all duration-200 shadow-md hover:border-slate-600 relative ${
+      className={`bg-slate-800/90 dark:bg-slate-800/90 rounded-2xl p-4 border transition-all duration-200 shadow-md hover:border-slate-600 relative ${
         isBestPrice
           ? 'border-emerald-500/50 bg-gradient-to-b from-slate-800/90 to-emerald-950/25 shadow-emerald-950/30'
           : 'border-slate-700/60'
@@ -204,9 +247,28 @@ export const StationCard: React.FC<StationCardProps> = ({
           })}
         </div>
 
-        {/* Distanz & Navigation Button */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-slate-400">
+        {/* Action Buttons: Details, Teilen, Distanz & Route */}
+        <div className="flex items-center gap-1.5">
+          {/* Details / Öffnungszeiten Toggle */}
+          <button
+            onClick={toggleDetails}
+            className="p-1.5 bg-slate-900/70 hover:bg-slate-700/70 text-slate-300 rounded-lg border border-slate-700/60 text-xs transition cursor-pointer flex items-center gap-1"
+            title="Öffnungszeiten & Wochenplan ansehen"
+          >
+            <Clock className="w-3.5 h-3.5 text-sky-400" />
+            {showDetails ? <ChevronUp className="w-3 h-3 text-slate-400" /> : <ChevronDown className="w-3 h-3 text-slate-400" />}
+          </button>
+
+          {/* Web Share Button */}
+          <button
+            onClick={handleShare}
+            className="p-1.5 bg-slate-900/70 hover:bg-slate-700/70 text-slate-300 rounded-lg border border-slate-700/60 text-xs transition cursor-pointer flex items-center gap-1"
+            title="Spritpreise teilen"
+          >
+            {copiedShare ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Share2 className="w-3.5 h-3.5 text-slate-400" />}
+          </button>
+
+          <span className="text-xs font-semibold text-slate-400 px-1">
             {station.dist < 1
               ? `${Math.round(station.dist * 1000)} m`
               : `${station.dist.toFixed(1)} km`}
@@ -222,6 +284,47 @@ export const StationCard: React.FC<StationCardProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Expandable Details (Öffnungszeiten-Wochenplan) */}
+      {showDetails && (
+        <div className="mt-3 pt-3 border-t border-slate-700/40 space-y-2 text-xs animate-in fade-in duration-150">
+          <div className="flex items-center justify-between text-slate-300 font-semibold">
+            <span className="flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-sky-400" />
+              Öffnungszeiten & Services
+            </span>
+            {details?.wholeDay && (
+              <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-bold">
+                24/7 Geöffnet
+              </span>
+            )}
+          </div>
+
+          {isLoadingDetails ? (
+            <div className="py-3 flex items-center justify-center gap-2 text-slate-400">
+              <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
+              <span>Öffnungszeiten werden geladen...</span>
+            </div>
+          ) : details?.openingTimes && details.openingTimes.length > 0 ? (
+            <div className="bg-slate-900/80 rounded-xl p-2.5 border border-slate-800 space-y-1.5">
+              {details.openingTimes.map((ot, idx) => (
+                <div key={idx} className="flex justify-between items-center text-[11px]">
+                  <span className="text-slate-400">{ot.text}:</span>
+                  <span className="font-semibold text-slate-200">
+                    {ot.start} – {ot.end} Uhr
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-[11px] text-slate-400 italic bg-slate-900/60 p-2.5 rounded-xl border border-slate-800">
+              {details?.wholeDay
+                ? 'Diese Tankstelle ist durchgehend 24 Stunden geöffnet.'
+                : 'Kein detaillierter Wochenplan von der MTS-K gemeldet.'}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

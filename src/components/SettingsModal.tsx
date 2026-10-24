@@ -59,6 +59,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
     }, 600);
   };
 
+  const hasCustomKey = Boolean(typeof window !== 'undefined' && localStorage.getItem('tankapp_api_key')?.trim());
+
+  const handleClearCustomKey = () => {
+    saveApiKey('');
+    setApiKey('');
+    setStatus({ type: 'success', message: 'Eigener Key gelöscht. Standard-Proxy wieder aktiv.' });
+    setTimeout(() => {
+      onKeySaved();
+      onClose();
+    }, 600);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-slate-900 border border-slate-700/80 w-full max-w-md rounded-3xl p-6 shadow-2xl space-y-5 animate-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
@@ -176,6 +188,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                 'Key prüfen & speichern'
               )}
             </button>
+
+            {hasCustomKey && (
+              <button
+                type="button"
+                onClick={handleClearCustomKey}
+                className="w-full py-2 px-4 bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 border border-rose-800/60 rounded-xl text-xs font-semibold transition cursor-pointer"
+              >
+                Eigenen Key löschen & Standard nutzen
+              </button>
+            )}
 
             <button
               type="button"

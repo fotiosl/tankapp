@@ -1,12 +1,15 @@
 import React from 'react';
-import { Fuel, KeyRound, Sparkles, Smartphone, Bell, BellRing } from 'lucide-react';
-import { isUsingDemoKey, hasEnvApiKey } from '../services/api';
+import { Fuel, Settings, Sparkles, Smartphone, Bell, BellRing, Sun, Moon } from 'lucide-react';
+import { isUsingDemoKey } from '../services/api';
+import type { ThemeMode } from '../types';
 
 interface HeaderProps {
   onOpenSettings: () => void;
   onOpenInstallGuide: () => void;
   onOpenPriceAlert: () => void;
   isAlertActive?: boolean;
+  theme: ThemeMode;
+  onToggleTheme: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -14,15 +17,17 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenInstallGuide,
   onOpenPriceAlert,
   isAlertActive = false,
+  theme,
+  onToggleTheme,
 }) => {
   const isDemo = isUsingDemoKey();
 
   return (
-    <header className="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-slate-800/80 px-4 pt-safe pb-3">
+    <header className="sticky top-0 z-40 bg-slate-900/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-800/80 px-4 pt-safe pb-3 transition-colors">
       <div className="flex items-center justify-between max-w-2xl mx-auto">
         {/* App Title & Brand */}
         <div className="flex items-center gap-2.5">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-blue-500/25">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-blue-500/25 shrink-0">
             <Fuel className="w-5 h-5 text-white" />
           </div>
           <div>
@@ -37,7 +42,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Action Buttons */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           {isDemo && (
             <button
               onClick={onOpenSettings}
@@ -50,6 +55,15 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
+          {/* Theme Toggle (Tag / Nacht Kontrast) */}
+          <button
+            onClick={onToggleTheme}
+            className="p-2 text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-700/80 rounded-xl border border-slate-700/60 transition-colors cursor-pointer flex items-center justify-center"
+            title={theme === 'dark' ? 'Hellen Kontrastmodus für Tageslicht aktivieren' : 'Dunklen Modus aktivieren'}
+          >
+            {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-300" /> : <Moon className="w-4 h-4 text-blue-300" />}
+          </button>
+
           <button
             onClick={onOpenPriceAlert}
             className={`p-2 rounded-xl border transition-colors cursor-pointer flex items-center justify-center ${
@@ -59,7 +73,7 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
             title="Wunschpreis-Alarm & Tank-Rechner"
           >
-            {isAlertActive ? <BellRing className="w-5 h-5 text-sky-400" /> : <Bell className="w-5 h-5 text-slate-300" />}
+            {isAlertActive ? <BellRing className="w-4 h-4 text-sky-400" /> : <Bell className="w-4 h-4 text-slate-300" />}
           </button>
 
           <button
@@ -67,18 +81,17 @@ export const Header: React.FC<HeaderProps> = ({
             className="p-2 text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-700/80 rounded-xl border border-slate-700/60 transition-colors cursor-pointer flex items-center justify-center"
             title="Auf iPhone installieren"
           >
-            <Smartphone className="w-5 h-5 text-sky-400" />
+            <Smartphone className="w-4 h-4 text-sky-400" />
           </button>
 
-          {(!hasEnvApiKey() || isDemo) && (
-            <button
-              onClick={onOpenSettings}
-              className="p-2 text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-700/80 rounded-xl border border-slate-700/60 transition-colors cursor-pointer flex items-center justify-center"
-              title="API-Key Einstellungen"
-            >
-              <KeyRound className="w-5 h-5 text-slate-300" />
-            </button>
-          )}
+          {/* Settings immer erreichbar (kein Lockout mehr) */}
+          <button
+            onClick={onOpenSettings}
+            className="p-2 text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-700/80 rounded-xl border border-slate-700/60 transition-colors cursor-pointer flex items-center justify-center"
+            title="Einstellungen & API-Key"
+          >
+            <Settings className="w-4 h-4 text-slate-300" />
+          </button>
         </div>
       </div>
     </header>

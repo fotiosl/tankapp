@@ -26,43 +26,6 @@ export function getFuelPrice(station: Station, fuel: FuelType): number | null {
   return null;
 }
 
-export function getBrandBadge(brandName: string): { bg: string; text: string; label: string } {
-  const clean = (brandName || '').toUpperCase().trim();
-  
-  if (clean.includes('ARAL')) {
-    return { bg: 'bg-blue-600', text: 'text-white', label: 'ARAL' };
-  }
-  if (clean.includes('SHELL')) {
-    return { bg: 'bg-yellow-500', text: 'text-red-950 font-bold', label: 'SHELL' };
-  }
-  if (clean.includes('ESSO')) {
-    return { bg: 'bg-red-600', text: 'text-white', label: 'ESSO' };
-  }
-  if (clean.includes('TOTAL')) {
-    return { bg: 'bg-rose-700', text: 'text-white', label: 'TOTAL' };
-  }
-  if (clean.includes('JET')) {
-    return { bg: 'bg-amber-400', text: 'text-slate-950 font-bold', label: 'JET' };
-  }
-  if (clean.includes('HEM')) {
-    return { bg: 'bg-emerald-600', text: 'text-white', label: 'HEM' };
-  }
-  if (clean.includes('AVIA')) {
-    return { bg: 'bg-red-700', text: 'text-white', label: 'AVIA' };
-  }
-  if (clean.includes('STAR')) {
-    return { bg: 'bg-red-600', text: 'text-white', label: 'STAR' };
-  }
-  if (clean.includes('AGIP') || clean.includes('ENI')) {
-    return { bg: 'bg-yellow-400', text: 'text-black', label: 'ENI' };
-  }
-  if (clean.includes('OMV')) {
-    return { bg: 'bg-blue-700', text: 'text-emerald-300', label: 'OMV' };
-  }
-
-  return { bg: 'bg-slate-700', text: 'text-slate-200', label: brandName || 'Tankstelle' };
-}
-
 export function openNavigation(lat: number, lng: number, name: string): void {
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   

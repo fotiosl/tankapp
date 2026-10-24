@@ -8,7 +8,7 @@ import {
   Compass,
 } from 'lucide-react';
 import type { Coordinates, FuelType, PriceAlert, SortMode, Station, UserSettings } from './types';
-import { fetchStations } from './services/api';
+import { fetchStations, fetchStationsAlongRoute } from './services/api';
 import { Header } from './components/Header';
 import { FuelSelector } from './components/FuelSelector';
 import { SearchAndFilters } from './components/SearchAndFilters';
@@ -20,22 +20,29 @@ import { PriceAlertModal } from './components/PriceAlertModal';
 import { getFuelPrice } from './utils/formatters';
 import { DEFAULT_USER_SETTINGS } from './utils/calculator';
 import { usePullToRefresh } from './hooks/usePullToRefresh';
-
-// Standard-Koordinaten (Berlin Brandenburger Tor), falls GPS noch nicht erlaubt wurde
-const DEFAULT_COORDS: Coordinates = {
-  lat: 52.5162,
-  lng: 13.3777,
-  name: 'Berlin Mitte (Standard)',
-};
+import { useFavorites } from './hooks/useFavorites';
+import { useTheme } from './hooks/useTheme';
+import { useGeolocation } from './hooks/useGeolocation';
 
 export const App: React.FC = () => {
-  // Kraftstoffart im LocalStorage
+  // Theme & Custom Hooks
+  const { theme, toggleTheme } = useTheme();
+  const { favoriteIds, toggleFavorite } = useFavorites();
+  const {
+    coords,
+    setCoords,
+    hasResolvedInitialLocation,
+    isLoadingLocation,
+    locationError,
+    setLocationError,
+    requestCurrentLocation,
+  } = useGeolocation();
+
+  // Kraftstoffart
   const [fuelType, setFuelType] = useState<FuelType>(() => {
     try {
       const saved = localStorage.getItem('tankapp_fuel_type');
-      if (saved === 'diesel' || saved === 'e10' || saved === 'e5') {
-        return saved;
-      }
+      if (saved === 'diesel' || saved === 'e10' || saved === 'e5') return saved;
     } catch {}
     return 'diesel';
   });
@@ -47,7 +54,7 @@ export const App: React.FC = () => {
     } catch {}
   };
 
-  // Suchbegriff (Name / Marke wie Aral) im LocalStorage
+  // Suche & Filter
   const [searchTerm, setSearchTerm] = useState<string>(() => {
     try {
       return localStorage.getItem('tankapp_search_term') || '';
@@ -63,7 +70,6 @@ export const App: React.FC = () => {
     } catch {}
   };
 
-  // Suchradius im LocalStorage (Standard 5 km)
   const [radiusKm, setRadiusKm] = useState<number>(() => {
     try {
       const saved = localStorage.getItem('tankapp_radius_km');
@@ -82,7 +88,6 @@ export const App: React.FC = () => {
     } catch {}
   };
 
-  // Sortierung im LocalStorage
   const [sortMode, setSortMode] = useState<SortMode>(() => {
     try {
       const saved = localStorage.getItem('tankapp_sort_mode');
@@ -98,7 +103,6 @@ export const App: React.FC = () => {
     } catch {}
   };
 
-  // Nur geöffnete im LocalStorage
   const [onlyOpen, setOnlyOpen] = useState<boolean>(() => {
     try {
       const saved = localStorage.getItem('tankapp_only_open');
@@ -117,27 +121,9 @@ export const App: React.FC = () => {
   const [onlyFavorites, setOnlyFavorites] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
 
-  // Favoriten im LocalStorage
-  const [favoriteIds, setFavoriteIds] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('tankapp_favorites');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  const toggleFavorite = useCallback((stationId: string) => {
-    setFavoriteIds((prev) => {
-      const next = prev.includes(stationId)
-        ? prev.filter((id) => id !== stationId)
-        : [...prev, stationId];
-      try {
-        localStorage.setItem('tankapp_favorites', JSON.stringify(next));
-      } catch {}
-      return next;
-    });
-  }, []);
+  // Routen-Modus
+  const [isRouteMode, setIsRouteMode] = useState(false);
+  const [routeDest, setRouteDest] = useState<Coordinates | null>(null);
 
   // User-Einstellungen für Umweg-Rechner
   const [userSettings, setUserSettings] = useState<UserSettings>(() => {
@@ -173,83 +159,28 @@ export const App: React.FC = () => {
     } catch {}
   };
 
-  const [coords, setCoords] = useState<Coordinates>(DEFAULT_COORDS);
-  const [hasResolvedInitialLocation, setHasResolvedInitialLocation] = useState(false);
-  const [isLoadingLocation, setIsLoadingLocation] = useState(true);
-  const [locationError, setLocationError] = useState<string | null>(null);
-
+  // Stations State
   const [stations, setStations] = useState<Station[]>([]);
   const [isLoadingStations, setIsLoadingStations] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
+  // Modals
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isInstallGuideOpen, setIsInstallGuideOpen] = useState(false);
   const [isPriceAlertOpen, setIsPriceAlertOpen] = useState(false);
 
-  // GPS-Standort abrufen (mit automatischem Fallback für Desktop/WLAN)
-  const requestCurrentLocation = useCallback(() => {
-    if (!('geolocation' in navigator)) {
-      setLocationError('Standortermittlung wird von diesem Browser nicht unterstützt.');
-      setHasResolvedInitialLocation(true);
-      setIsLoadingLocation(false);
-      return;
-    }
-
-    setIsLoadingLocation(true);
-    setLocationError(null);
-
-    const tryGetPosition = (highAccuracy: boolean) => {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          setCoords({
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-            name: 'Aktueller GPS-Standort',
-          });
-          setLocationError(null);
-          setIsLoadingLocation(false);
-          setHasResolvedInitialLocation(true);
-        },
-        (err) => {
-          if (highAccuracy && (err.code === 2 || err.code === 3)) {
-            tryGetPosition(false);
-            return;
-          }
-
-          let msg = 'Standort konnte nicht ermittelt werden.';
-          if (err.code === 1) {
-            msg = 'Standort-Berechtigung verweigert. Bitte im Browser erlauben oder Ort manuell eingeben.';
-          } else if (err.code === 2) {
-            msg = 'Position derzeit nicht ermittelbar. Bitte Ortssuche oben nutzen.';
-          } else if (err.code === 3) {
-            msg = 'Standortabfrage dauerte zu lange. Bitte erneut versuchen.';
-          }
-          setLocationError(msg);
-          setIsLoadingLocation(false);
-          setHasResolvedInitialLocation(true);
-        },
-        {
-          enableHighAccuracy: highAccuracy,
-          timeout: highAccuracy ? 5000 : 7000,
-          maximumAge: 60000,
-        }
-      );
-    };
-
-    tryGetPosition(true);
-  }, []);
-
-  useEffect(() => {
-    requestCurrentLocation();
-  }, [requestCurrentLocation]);
-
-  // Tankstellen-Daten laden
+  // Tankstellen-Daten laden (Umkreis oder entlang Route)
   const loadStationsData = useCallback(async () => {
     setIsLoadingStations(true);
     setFetchError(null);
     try {
-      const data = await fetchStations(coords, radiusKm);
+      let data: Station[];
+      if (isRouteMode && routeDest) {
+        data = await fetchStationsAlongRoute(coords, routeDest);
+      } else {
+        data = await fetchStations(coords, radiusKm);
+      }
       setStations(data);
       setLastUpdated(new Date());
     } catch (err: unknown) {
@@ -258,7 +189,7 @@ export const App: React.FC = () => {
     } finally {
       setIsLoadingStations(false);
     }
-  }, [coords, radiusKm]);
+  }, [coords, radiusKm, isRouteMode, routeDest]);
 
   // Erst laden, wenn der Start-Standort initial ermittelt wurde
   useEffect(() => {
@@ -333,6 +264,10 @@ export const App: React.FC = () => {
         const priceB = getFuelPrice(b, fuelType);
 
         if (sortMode === 'price') {
+          // Fix: Geöffnete Tankstellen immer vor geschlossenen einsortieren!
+          if (a.isOpen !== b.isOpen) {
+            return a.isOpen ? -1 : 1;
+          }
           if (priceA !== null && priceB !== null) {
             if (Math.abs(priceA - priceB) > 0.0001) {
               return priceA - priceB;
@@ -376,13 +311,19 @@ export const App: React.FC = () => {
   const minDist = closestStation ? closestStation.dist : 0;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased selection:bg-blue-600 selection:text-white">
+    <div
+      className={`min-h-screen ${
+        theme === 'light' ? 'bg-slate-100 text-slate-900' : 'bg-slate-950 text-slate-100'
+      } flex flex-col font-sans antialiased selection:bg-blue-600 selection:text-white transition-colors`}
+    >
       {/* Header */}
       <Header
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenInstallGuide={() => setIsInstallGuideOpen(true)}
         onOpenPriceAlert={() => setIsPriceAlertOpen(true)}
         isAlertActive={priceAlert.enabled}
+        theme={theme}
+        onToggleTheme={toggleTheme}
       />
 
       {/* Main Container */}
@@ -390,7 +331,7 @@ export const App: React.FC = () => {
         {/* Pull to Refresh Indicator */}
         {pullDistance > 0 && (
           <div
-            className="flex items-center justify-center gap-2 text-xs text-slate-300 font-semibold py-1.5 transition-all"
+            className="flex items-center justify-center gap-2 text-xs text-slate-400 font-semibold py-1.5 transition-all"
             style={{ opacity: Math.min(pullDistance / 50, 1) }}
           >
             <RefreshCw
@@ -411,7 +352,7 @@ export const App: React.FC = () => {
         {/* Kraftstoff-Auswahl (Diesel, Super E10, Super E5) */}
         <FuelSelector selectedFuel={fuelType} onSelectFuel={handleFuelTypeChange} />
 
-        {/* Suchleiste, Favoriten, Radius & Filter */}
+        {/* Suchleiste, Favoriten, Radius, Schnellwahl & Filter */}
         <SearchAndFilters
           searchTerm={searchTerm}
           onSearchTermChange={handleSearchTermChange}
@@ -428,6 +369,16 @@ export const App: React.FC = () => {
           onlyFavorites={onlyFavorites}
           onOnlyFavoritesChange={setOnlyFavorites}
           favoriteCount={favoriteIds.length}
+          isRouteMode={isRouteMode}
+          onToggleRouteMode={(val) => {
+            setIsRouteMode(val);
+            if (!val) setRouteDest(null);
+          }}
+          routeDestination={routeDest}
+          onSelectRouteDestination={(dest) => {
+            setRouteDest(dest);
+          }}
+          isLoadingRoute={isLoadingStations && isRouteMode}
         />
 
         {/* Fehler-Meldung bei GPS */}
@@ -449,9 +400,10 @@ export const App: React.FC = () => {
         {/* Statuszeile & Ansichts-Umschaltung (Liste / Karte) */}
         <div className="flex items-center justify-between pt-1">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-300">
+            <span className="text-xs font-bold text-slate-300 dark:text-slate-300">
               {filteredStations.length}{' '}
-              {filteredStations.length === 1 ? 'Tankstelle' : 'Tankstellen'} {onlyFavorites ? 'in Favoriten' : 'gefunden'}
+              {filteredStations.length === 1 ? 'Tankstelle' : 'Tankstellen'}{' '}
+              {onlyFavorites ? 'in Favoriten' : isRouteMode ? 'auf Route' : 'gefunden'}
             </span>
             {lastUpdated && (
               <span className="text-[10px] text-slate-400">
@@ -561,6 +513,8 @@ export const App: React.FC = () => {
                 <p className="text-xs text-slate-400 max-w-xs mx-auto leading-relaxed">
                   {onlyFavorites
                     ? 'Tippe auf den Stern bei beliebigen Tankstellen, um sie zu deinen Favoriten hinzuzufügen.'
+                    : isRouteMode
+                    ? 'Auf der eingegebenen Fahrstrecke wurden keine geöffneten Tankstellen gefunden.'
                     : `Im Umkreis von ${radiusKm} km wurden mit den aktuellen Filtern keine Tankstellen gefunden.`}
                 </p>
                 <button
