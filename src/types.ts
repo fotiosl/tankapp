@@ -84,9 +84,11 @@ export interface QuickLocation {
 
 export type ThemeMode = 'dark' | 'light';
 
-export interface RoutePoint {
-  lat: number;
-  lng: number;
-  name: string;
-}
+export type ApiMode = 'proxy' | 'custom' | 'demo';
 
+export interface ApiStatusInfo {
+  mode: ApiMode;
+  proxyConfigured: boolean | null;
+  hasCustomKey: boolean;
+  isDemo: boolean;
+}

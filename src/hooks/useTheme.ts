@@ -1,29 +1,27 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useCallback } from 'react';
 import type { ThemeMode } from '../types';
+import { useLocalStorage } from './useLocalStorage';
+
+function parseTheme(raw: string): ThemeMode | null {
+  return raw === 'light' || raw === 'dark' ? raw : null;
+}
 
 export function useTheme() {
-  const [theme, setTheme] = useState<ThemeMode>(() => {
-    try {
-      const saved = localStorage.getItem('tankapp_theme');
-      if (saved === 'light' || saved === 'dark') return saved;
-    } catch {}
-    return 'dark';
-  });
+  const [theme, setTheme] = useLocalStorage<ThemeMode>('tankapp_theme', 'dark', parseTheme);
 
   useEffect(() => {
-    try {
-      localStorage.setItem('tankapp_theme', theme);
-      if (theme === 'dark') {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
-    } catch {}
+    const isDark = theme === 'dark';
+    document.documentElement.classList.toggle('dark', isDark);
+
+    const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+    if (metaThemeColor) {
+      metaThemeColor.setAttribute('content', isDark ? '#0f172a' : '#f1f5f9');
+    }
   }, [theme]);
 
-  const toggleTheme = () => {
+  const toggleTheme = useCallback(() => {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
-  };
+  }, [setTheme]);
 
   return { theme, toggleTheme };
 }

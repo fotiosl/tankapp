@@ -22,6 +22,15 @@ export function calculateNetSavings(
   minDist: number,
   settings: UserSettings = DEFAULT_USER_SETTINGS
 ): SavingsResult {
+  if (
+    !Number.isFinite(stationPrice) ||
+    !Number.isFinite(referencePrice) ||
+    stationPrice <= 0 ||
+    referencePrice <= 0
+  ) {
+    return { grossSavings: 0, detourCost: 0, netSavings: 0, isWorthwhile: false };
+  }
+
   // Brutto-Ersparnis beim Volltanken
   const grossSavings = Math.max(0, (referencePrice - stationPrice) * settings.tankVolumeLiters);
 

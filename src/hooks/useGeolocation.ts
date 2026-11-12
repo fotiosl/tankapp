@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type { Coordinates } from '../types';
 
 export const DEFAULT_COORDS: Coordinates = {
@@ -7,67 +7,121 @@ export const DEFAULT_COORDS: Coordinates = {
   name: 'Berlin Mitte (Standard)',
 };
 
+const hasGeolocationSupport =
+  typeof window !== 'undefined' && 'geolocation' in navigator;
+
+function mapGeolocationError(code: number): string {
+  if (code === 1) {
+    return 'Standort-Berechtigung verweigert. Bitte im Browser erlauben oder Ort manuell eingeben.';
+  }
+  if (code === 2) {
+    return 'Position derzeit nicht ermittelbar. Bitte Ortssuche oben nutzen.';
+  }
+  if (code === 3) {
+    return 'Standortabfrage dauerte zu lange. Bitte erneut versuchen.';
+  }
+  return 'Standort konnte nicht ermittelt werden.';
+}
+
+function queryPosition(
+  highAccuracy: boolean,
+  onSuccess: (coords: Coordinates) => void,
+  onError: (msg: string) => void,
+  isCancelled: () => boolean
+): void {
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      if (isCancelled()) return;
+      onSuccess({
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        name: 'Aktueller GPS-Standort',
+      });
+    },
+    (err) => {
+      if (isCancelled()) return;
+      if (highAccuracy && (err.code === 2 || err.code === 3)) {
+        queryPosition(false, onSuccess, onError, isCancelled);
+        return;
+      }
+      onError(mapGeolocationError(err.code));
+    },
+    {
+      enableHighAccuracy: highAccuracy,
+      timeout: highAccuracy ? 5000 : 7000,
+      maximumAge: 60000,
+    }
+  );
+}
+
 export function useGeolocation() {
   const [coords, setCoords] = useState<Coordinates>(DEFAULT_COORDS);
-  const [hasResolvedInitialLocation, setHasResolvedInitialLocation] = useState(false);
-  const [isLoadingLocation, setIsLoadingLocation] = useState(true);
-  const [locationError, setLocationError] = useState<string | null>(null);
+  const [hasResolvedInitialLocation, setHasResolvedInitialLocation] = useState(
+    !hasGeolocationSupport
+  );
+  const [isLoadingLocation, setIsLoadingLocation] = useState(hasGeolocationSupport);
+  const [locationError, setLocationError] = useState<string | null>(
+    hasGeolocationSupport
+      ? null
+      : 'Standortermittlung wird von diesem Browser nicht unterstützt.'
+  );
+
+  const activeRequestIdRef = useRef(0);
 
   const requestCurrentLocation = useCallback(() => {
-    if (typeof window === 'undefined' || !('geolocation' in navigator)) {
+    if (!hasGeolocationSupport) {
       setLocationError('Standortermittlung wird von diesem Browser nicht unterstützt.');
       setHasResolvedInitialLocation(true);
       setIsLoadingLocation(false);
       return;
     }
 
+    const requestId = ++activeRequestIdRef.current;
     setIsLoadingLocation(true);
     setLocationError(null);
 
-    const tryGetPosition = (highAccuracy: boolean) => {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          setCoords({
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-            name: 'Aktueller GPS-Standort',
-          });
-          setLocationError(null);
-          setIsLoadingLocation(false);
-          setHasResolvedInitialLocation(true);
-        },
-        (err) => {
-          if (highAccuracy && (err.code === 2 || err.code === 3)) {
-            tryGetPosition(false);
-            return;
-          }
-
-          let msg = 'Standort konnte nicht ermittelt werden.';
-          if (err.code === 1) {
-            msg = 'Standort-Berechtigung verweigert. Bitte im Browser erlauben oder Ort manuell eingeben.';
-          } else if (err.code === 2) {
-            msg = 'Position derzeit nicht ermittelbar. Bitte Ortssuche oben nutzen.';
-          } else if (err.code === 3) {
-            msg = 'Standortabfrage dauerte zu lange. Bitte erneut versuchen.';
-          }
-          setLocationError(msg);
-          setIsLoadingLocation(false);
-          setHasResolvedInitialLocation(true);
-        },
-        {
-          enableHighAccuracy: highAccuracy,
-          timeout: highAccuracy ? 5000 : 7000,
-          maximumAge: 60000,
-        }
-      );
-    };
-
-    tryGetPosition(true);
+    queryPosition(
+      true,
+      (nextCoords) => {
+        setCoords(nextCoords);
+        setLocationError(null);
+        setIsLoadingLocation(false);
+        setHasResolvedInitialLocation(true);
+      },
+      (msg) => {
+        setLocationError(msg);
+        setIsLoadingLocation(false);
+        setHasResolvedInitialLocation(true);
+      },
+      () => activeRequestIdRef.current !== requestId
+    );
   }, []);
 
   useEffect(() => {
-    requestCurrentLocation();
-  }, [requestCurrentLocation]);
+    if (!hasGeolocationSupport) return;
+
+    let cancelled = false;
+    const requestId = ++activeRequestIdRef.current;
+    queryPosition(
+      true,
+      (nextCoords) => {
+        setCoords(nextCoords);
+        setLocationError(null);
+        setIsLoadingLocation(false);
+        setHasResolvedInitialLocation(true);
+      },
+      (msg) => {
+        setLocationError(msg);
+        setIsLoadingLocation(false);
+        setHasResolvedInitialLocation(true);
+      },
+      () => cancelled || activeRequestIdRef.current !== requestId
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return {
     coords,

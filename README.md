@@ -3,8 +3,8 @@
 <div align="center">
 
 ![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)
-![Vite](https://img.shields.io/badge/Vite-6.x-646CFF?logo=vite&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-7.x-3178C6?logo=typescript&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-8.x-646CFF?logo=vite&logoColor=white)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4.x-38B2AC?logo=tailwind-css&logoColor=white)
 ![Leaflet](https://img.shields.io/badge/Leaflet-1.9-199900?logo=leaflet&logoColor=white)
 ![PWA Ready](https://img.shields.io/badge/PWA-iOS_%26_Mobile_Ready-FF2D20?logo=apple&logoColor=white)
@@ -53,8 +53,8 @@ Egal ob auf dem Weg zur Arbeit, vor der Urlaubsfahrt oder spontan unterwegs: Tan
 | Bereich | Technologie | Beschreibung |
 | :--- | :--- | :--- |
 | **Frontend** | [React 19](https://react.dev/) | Moderne Komponentenarchitektur mit React Hooks |
-| **Sprache** | [TypeScript](https://www.typescriptlang.org/) | Typsicherheit und Wartbarkeit |
-| **Build-Tool** | [Vite 6](https://vite.dev/) | Extrem schnelle HMR & schlanke Production-Bundles |
+| **Sprache** | [TypeScript 7](https://www.typescriptlang.org/) | Typsicherheit und native Performance |
+| **Build-Tool** | [Vite 8](https://vite.dev/) | Extrem schnelle HMR & schlanke Production-Bundles |
 | **Styling** | [Tailwind CSS v4](https://tailwindcss.com/) | Responsives, hochmodernes Utility-First CSS |
 | **Karten** | [Leaflet](https://leafletjs.com/) & CartoDB | Schnelle, interaktive Kartendarstellung ohne Google-Maps-Kosten |
 | **Icons** | [Lucide React](https://lucide.dev/) | Konsistente, moderne Vektor-Icons |
@@ -66,7 +66,7 @@ Egal ob auf dem Weg zur Arbeit, vor der Urlaubsfahrt oder spontan unterwegs: Tan
 ## 🚀 Schnellstart (Lokal)
 
 ### Voraussetzungen
-- [Node.js](https://nodejs.org/) (Version 18 oder neuer)
+- [Node.js](https://nodejs.org/) (Version 26 empfohlen, passend zu `engines.node`)
 - npm, pnpm oder yarn
 
 ### 1. Repository klonen & Abhängigkeiten installieren
@@ -141,24 +141,25 @@ Die Web-App kann ohne Umweg über den App Store direkt auf dem iPhone-Homescreen
 ```text
 tankapp/
 ├── api/                     # Vercel Serverless Functions
-│   └── stations.js          # API-Proxy mit Rate-Limiting & Caching
-├── public/                  # Statische Assets & PWA-Icons
+│   └── stations.js          # API-Proxy mit Eingabevalidierung & Edge-Caching
+├── public/                  # Statische Assets, Service Worker & PWA-Icons (PNG/SVG)
 ├── src/
-│   ├── assets/              # Bilder und SVGs
 │   ├── components/          # React-UI-Komponenten
+│   │   ├── AddressSearchBox.tsx # Wiederverwendbare Ortssuche (Nominatim)
 │   │   ├── FuelSelector.tsx # Kraftstoffauswahl (Diesel, E10, E5)
 │   │   ├── Header.tsx       # Kopfzeile mit Status und Dialogen
 │   │   ├── MapView.tsx      # Interaktive Leaflet-Karte mit Pins
+│   │   ├── ModalShell.tsx   # Barrierefreie Dialog-Basis (Escape & Backdrop)
 │   │   ├── PriceAlertModal.tsx # Wunschpreis- & Alarmkonfiguration
 │   │   ├── PWAInstallGuideModal.tsx # Schritt-für-Schritt PWA-Anleitung
 │   │   ├── SearchAndFilters.tsx # Markenfilter, Sortierung & Radius
 │   │   ├── SettingsModal.tsx    # API-Key- & App-Einstellungen
 │   │   └── StationCard.tsx  # Tankstellen-Karte mit Preisvergleich
-│   ├── hooks/               # Custom React Hooks (z.B. Pull-to-Refresh)
+│   ├── hooks/               # Custom React Hooks (z.B. Pull-to-Refresh, Theme)
 │   ├── services/            # API-Abfragen und Demo-Fallback-Logik
 │   ├── utils/               # Markenstyling, Formatierung & Sparrechner
 │   ├── App.tsx              # Hauptanwendung & State-Management
-│   ├── main.tsx             # Einstiegspunkt
+│   ├── main.tsx             # Einstiegspunkt & Service-Worker-Registrierung
 │   └── types.ts             # TypeScript Typdefinitionen
 ├── package.json
 ├── tsconfig.json
