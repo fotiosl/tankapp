@@ -209,6 +209,7 @@ function PriceAlertModalContent({
                   <input
                     id="alert-target-price"
                     type="number"
+                    inputMode="decimal"
                     step="0.001"
                     min="0.500"
                     max="5.000"
@@ -272,6 +273,7 @@ function PriceAlertModalContent({
                 <input
                   id="tank-volume-input"
                   type="number"
+                  inputMode="numeric"
                   min="10"
                   max="150"
                   value={tankVolume}
@@ -295,6 +297,7 @@ function PriceAlertModalContent({
                 <input
                   id="consumption-input"
                   type="number"
+                  inputMode="decimal"
                   step="0.1"
                   min="3"
                   max="25"

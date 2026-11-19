@@ -5,12 +5,22 @@ import {
   setSecurityAndCorsHeaders,
 } from './_shared.js';
 
+/**
+ * @typedef {import('./_shared.js').ApiRequest} ApiRequest
+ * @typedef {import('./_shared.js').ApiResponse} ApiResponse
+ */
+
 const RATE_LIMIT_CONFIG = {
   bucket: 'geocode',
   limit: 20,
   windowMs: 60_000,
 };
 
+/**
+ * @param {ApiRequest} req
+ * @param {ApiResponse} res
+ * @returns {Promise<ApiResponse>}
+ */
 export default async function handler(req, res) {
   setSecurityAndCorsHeaders(req, res);
 
@@ -74,6 +84,7 @@ export default async function handler(req, res) {
       });
     }
 
+    /** @type {unknown} */
     let items;
     try {
       items = await response.json();
@@ -87,12 +98,26 @@ export default async function handler(req, res) {
 
     const results = Array.isArray(items)
       ? items
-          .map((item) => ({
-            lat: Number.parseFloat(String(item?.lat ?? '')),
-            lng: Number.parseFloat(String(item?.lon ?? '')),
-            displayName: typeof item?.display_name === 'string' ? item.display_name : '',
-          }))
-          .filter((item) => Number.isFinite(item.lat) && Number.isFinite(item.lng) && item.displayName)
+          .map((raw) => {
+            if (typeof raw !== 'object' || raw === null) return null;
+            /** @type {Record<string, unknown>} */
+            const item = raw;
+            const rawLat =
+              typeof item.lat === 'string' || typeof item.lat === 'number'
+                ? String(item.lat)
+                : '';
+            const rawLng =
+              typeof item.lon === 'string' || typeof item.lon === 'number'
+                ? String(item.lon)
+                : '';
+            const lat = Number.parseFloat(rawLat);
+            const lng = Number.parseFloat(rawLng);
+            const displayName =
+              typeof item.display_name === 'string' ? item.display_name : '';
+            if (!Number.isFinite(lat) || !Number.isFinite(lng) || !displayName) return null;
+            return { lat, lng, displayName };
+          })
+          .filter((item) => item !== null)
       : [];
 
     res.setHeader('Cache-Control', 's-maxage=86400, stale-while-revalidate=604800');

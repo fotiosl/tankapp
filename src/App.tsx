@@ -24,11 +24,11 @@ import { Header } from './components/Header';
 import { FuelSelector } from './components/FuelSelector';
 import { SearchAndFilters } from './components/SearchAndFilters';
 import { StationCard } from './components/StationCard';
+import { PullToRefreshIndicator } from './components/PullToRefreshIndicator';
 import { formatPrice, getFuelPrice } from './utils/formatters';
 import { matchesBrandOrSearch } from './utils/brandStyles';
 import { DEFAULT_USER_SETTINGS } from './utils/calculator';
 import { isFuelType, isRecord, parseJsonSafe } from './utils/typeGuards';
-import { usePullToRefresh } from './hooks/usePullToRefresh';
 import { useFavorites } from './hooks/useFavorites';
 import { useTheme } from './hooks/useTheme';
 import { useGeolocation } from './hooks/useGeolocation';
@@ -202,16 +202,6 @@ export function App() {
   const handleClosePriceAlert = useCallback(() => setIsPriceAlertOpen(false), []);
   const handleCloseInstallGuide = useCallback(() => setIsInstallGuideOpen(false), []);
 
-  // Pull-to-Refresh wartet jetzt echt auf den laufenden Fetch
-  const {
-    pullDistance,
-    isRefreshing: isPullRefreshing,
-    isTriggered,
-  } = usePullToRefresh({
-    onRefresh: refreshStations,
-    disabled: viewMode === 'map' || isSettingsOpen || isInstallGuideOpen || isPriceAlertOpen,
-  });
-
   // Wunschpreis-Prüfung (In-App-Banner + SW/Browser-Benachrichtigung)
   const alertHit = usePriceAlert(stations, priceAlert);
 
@@ -305,28 +295,13 @@ export function App() {
       />
 
       <main className="flex-1 max-w-2xl w-full mx-auto px-4 py-3 space-y-3.5 pb-24">
-        {/* Pull to Refresh Indicator */}
-        {pullDistance > 0 && (
-          <div
-            className="flex items-center justify-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-semibold py-1.5 transition-all"
-            style={{ opacity: Math.min(pullDistance / 50, 1) }}
-          >
-            <RefreshCw
-              className={`w-4 h-4 text-blue-600 dark:text-blue-400 ${
-                isTriggered || isPullRefreshing
-                  ? 'animate-spin text-emerald-500 dark:text-emerald-400'
-                  : ''
-              }`}
-            />
-            <span>
-              {isPullRefreshing
-                ? 'Preise werden aktualisiert...'
-                : isTriggered
-                ? 'Loslassen zum Aktualisieren'
-                : 'Nach unten ziehen...'}
-            </span>
-          </div>
-        )}
+        {/* Isolierter Pull-to-Refresh Indikator (verhindert 60fps App-Rerenders) */}
+        <PullToRefreshIndicator
+          onRefresh={refreshStations}
+          disabled={
+            viewMode === 'map' || isSettingsOpen || isInstallGuideOpen || isPriceAlertOpen
+          }
+        />
 
         {/* Offline-Hinweis */}
         {(isOffline || isShowingCachedOffline) && (

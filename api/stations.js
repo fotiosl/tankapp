@@ -5,6 +5,11 @@ import {
   setSecurityAndCorsHeaders,
 } from './_shared.js';
 
+/**
+ * @typedef {import('./_shared.js').ApiRequest} ApiRequest
+ * @typedef {import('./_shared.js').ApiResponse} ApiResponse
+ */
+
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const RATE_LIMIT_CONFIG = {
   bucket: 'stations',
@@ -12,6 +17,12 @@ const RATE_LIMIT_CONFIG = {
   windowMs: 60_000,
 };
 
+/**
+ * @param {string} upstreamUrl
+ * @param {string} successCacheControl
+ * @param {ApiResponse} res
+ * @returns {Promise<ApiResponse>}
+ */
 async function proxyTankerkoenig(upstreamUrl, successCacheControl, res) {
   try {
     const response = await fetch(upstreamUrl, {
@@ -30,6 +41,7 @@ async function proxyTankerkoenig(upstreamUrl, successCacheControl, res) {
       });
     }
 
+    /** @type {unknown} */
     let data;
     try {
       data = await response.json();
@@ -41,7 +53,13 @@ async function proxyTankerkoenig(upstreamUrl, successCacheControl, res) {
       });
     }
 
-    if (data && data.ok === true) {
+    const isOk =
+      typeof data === 'object' &&
+      data !== null &&
+      'ok' in data &&
+      /** @type {{ ok?: unknown }} */ (data).ok === true;
+
+    if (isOk) {
       res.setHeader('Cache-Control', successCacheControl);
     } else {
       res.setHeader('Cache-Control', 'no-store');
@@ -63,6 +81,11 @@ async function proxyTankerkoenig(upstreamUrl, successCacheControl, res) {
   }
 }
 
+/**
+ * @param {ApiRequest} req
+ * @param {ApiResponse} res
+ * @returns {Promise<ApiResponse>}
+ */
 export default async function handler(req, res) {
   setSecurityAndCorsHeaders(req, res);
 

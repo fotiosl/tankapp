@@ -100,6 +100,8 @@ export function SearchAndFilters({
 }: SearchAndFiltersProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showLocationSearch, setShowLocationSearch] = useState(false);
+  const [savedQuickFeedback, setSavedQuickFeedback] = useState<'home' | 'work' | null>(null);
+  const quickFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Entkoppelter Slider-State mit Debounce verhindert 15–20 API-Aufrufe beim Ziehen
   const [draftRadius, setDraftRadius] = useState<number>(radiusKm);
@@ -120,6 +122,9 @@ export function SearchAndFilters({
     return () => {
       if (radiusDebounceRef.current !== null) {
         clearTimeout(radiusDebounceRef.current);
+      }
+      if (quickFeedbackTimerRef.current !== null) {
+        clearTimeout(quickFeedbackTimerRef.current);
       }
     };
   }, []);
@@ -165,6 +170,13 @@ export function SearchAndFilters({
       lng: currentCoords.lng,
     };
     setQuickLocations((prev) => ({ ...prev, [id]: newLoc }));
+    setSavedQuickFeedback(id);
+    if (quickFeedbackTimerRef.current !== null) {
+      clearTimeout(quickFeedbackTimerRef.current);
+    }
+    quickFeedbackTimerRef.current = setTimeout(() => {
+      setSavedQuickFeedback(null);
+    }, 1800);
   };
 
   const clearQuickLocation = (id: 'home' | 'work') => {
@@ -173,6 +185,13 @@ export function SearchAndFilters({
       delete next[id];
       return next;
     });
+    if (savedQuickFeedback === id) {
+      setSavedQuickFeedback(null);
+      if (quickFeedbackTimerRef.current !== null) {
+        clearTimeout(quickFeedbackTimerRef.current);
+        quickFeedbackTimerRef.current = null;
+      }
+    }
   };
 
   const handleSelectQuickLocation = (id: 'home' | 'work') => {
@@ -316,7 +335,13 @@ export function SearchAndFilters({
                 }
               >
                 <Icon className={`w-3 h-3 ${iconColor}`} />
-                <span>{saved ? label : `+ ${label}`}</span>
+                <span>
+                  {savedQuickFeedback === id
+                    ? `${label} gespeichert ✓`
+                    : saved
+                    ? label
+                    : `+ ${label}`}
+                </span>
               </button>
               {saved && (
                 <button

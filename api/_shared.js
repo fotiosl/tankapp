@@ -1,3 +1,22 @@
+/**
+ * @typedef {{
+ *   method?: string;
+ *   query?: Record<string, string | string[] | undefined>;
+ *   headers?: Record<string, string | string[] | undefined>;
+ *   socket?: { remoteAddress?: string };
+ * }} ApiRequest
+ *
+ * @typedef {{
+ *   setHeader: (name: string, value: string) => void;
+ *   status: (code: number) => ApiResponse;
+ *   json: (body: unknown) => ApiResponse;
+ *   end: () => ApiResponse;
+ * }} ApiResponse
+ *
+ * @typedef {{ bucket: string; limit: number; windowMs: number }} RateLimitConfig
+ * @typedef {{ allowed: boolean; retryAfterSeconds: number }} RateLimitResult
+ */
+
 export const APP_USER_AGENT = 'TankApp/1.0 (+https://github.com/fotiosl/tankapp)';
 
 const LOCALHOST_ORIGIN_REGEX = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
@@ -6,19 +25,29 @@ const MAX_RATE_LIMIT_KEYS = 1000;
 /** @type {Map<string, number[]>} */
 const rateLimitStore = new Map();
 
+/** @returns {void} */
 export function resetRateLimits() {
   rateLimitStore.clear();
 }
 
+/** @returns {boolean} */
 export function isProductionRuntime() {
   return process.env.VERCEL_ENV === 'production' || process.env.NODE_ENV === 'production';
 }
 
+/**
+ * @param {string | string[] | undefined} value
+ * @returns {string | undefined}
+ */
 export function getSingleQueryParam(value) {
   if (typeof value !== 'string') return undefined;
   return value.trim();
 }
 
+/**
+ * @param {ApiRequest} req
+ * @returns {string | null}
+ */
 export function getAllowedOrigin(req) {
   const origin = req.headers?.origin;
   if (!origin || typeof origin !== 'string') return null;
@@ -45,6 +74,11 @@ export function getAllowedOrigin(req) {
   return null;
 }
 
+/**
+ * @param {ApiRequest} req
+ * @param {ApiResponse} res
+ * @returns {void}
+ */
 export function setSecurityAndCorsHeaders(req, res) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Vary', 'Origin');
@@ -57,6 +91,10 @@ export function setSecurityAndCorsHeaders(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Accept, Content-Type');
 }
 
+/**
+ * @param {ApiRequest} req
+ * @returns {string}
+ */
 function getClientIp(req) {
   const forwarded = req.headers?.['x-forwarded-for'];
   if (typeof forwarded === 'string' && forwarded.trim()) {
@@ -73,6 +111,11 @@ function getClientIp(req) {
   return 'unknown';
 }
 
+/**
+ * @param {ApiRequest} req
+ * @param {RateLimitConfig} config
+ * @returns {RateLimitResult}
+ */
 export function checkRateLimit(req, { bucket, limit, windowMs }) {
   const now = Date.now();
   const key = `${bucket}:${getClientIp(req)}`;

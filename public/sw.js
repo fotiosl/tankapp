@@ -1,5 +1,5 @@
-const SHELL_CACHE = 'tankapp-shell-v2';
-const ASSET_CACHE = 'tankapp-assets-v2';
+const SHELL_CACHE = 'tankapp-shell-v3';
+const ASSET_CACHE = 'tankapp-assets-v3';
 const VALID_CACHES = new Set([SHELL_CACHE, ASSET_CACHE]);
 const MAX_ASSET_CACHE_ENTRIES = 40;
 
@@ -7,6 +7,7 @@ const SHELL_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
+  '/theme-init.js',
   '/apple-touch-icon.png',
   '/icon-192.png',
   '/icon-512.png',
