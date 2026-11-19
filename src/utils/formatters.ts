@@ -42,6 +42,14 @@ export function formatCentDiff(diffEuro: number): string | null {
   return `+${formatted} ct`;
 }
 
+export function formatDistance(distKm: number): string {
+  if (!Number.isFinite(distKm) || distKm < 0) return '–';
+  if (distKm < 0.9995) {
+    return `${Math.round(distKm * 1000)} m`;
+  }
+  return `${distKm.toFixed(1).replace('.', ',')} km`;
+}
+
 export function getFuelPrice(station: Station, fuel: FuelType): number | null {
   const p = station[fuel];
   if (typeof p === 'number' && Number.isFinite(p) && p > 0) {
@@ -65,13 +73,15 @@ export function escapeHtml(value: string): string {
 }
 
 export function openNavigation(lat: number, lng: number, name: string): void {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
   const isIOS =
     /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
 
   if (isIOS) {
-    // Apple Maps URL Schema
-    window.location.href = `maps://maps.apple.com/?daddr=${lat},${lng}&q=${encodeURIComponent(name)}`;
+    // Apple Maps Universal Link (funktioniert auch, falls Apple Maps deinstalliert wurde)
+    window.location.href = `https://maps.apple.com/?daddr=${lat},${lng}&q=${encodeURIComponent(name)}`;
   } else {
     // Google Maps Navigation URL
     window.open(

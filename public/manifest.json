@@ -1,4 +1,7 @@
 {
+  "id": "/",
+  "scope": "/",
+  "lang": "de",
   "name": "TankApp - Spritpreise",
   "short_name": "TankApp",
   "description": "Finde die günstigsten Tankstellen in deiner Umgebung in Echtzeit",

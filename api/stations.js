@@ -1,47 +1,23 @@
+import {
+  APP_USER_AGENT,
+  checkRateLimit,
+  getSingleQueryParam,
+  setSecurityAndCorsHeaders,
+} from './_shared.js';
+
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const LOCALHOST_ORIGIN_REGEX = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
-
-function getAllowedOrigin(req) {
-  const origin = req.headers?.origin;
-  if (!origin) return null;
-
-  const host = req.headers?.['x-forwarded-host'] || req.headers?.host;
-  if (host && (origin === `https://${host}` || origin === `http://${host}`)) {
-    return origin;
-  }
-
-  if (LOCALHOST_ORIGIN_REGEX.test(origin)) {
-    return origin;
-  }
-
-  const extraOrigins = (process.env.ALLOWED_ORIGINS || '')
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean);
-
-  if (extraOrigins.includes(origin)) {
-    return origin;
-  }
-
-  return null;
-}
-
-function setCorsHeaders(req, res) {
-  const allowedOrigin = getAllowedOrigin(req);
-  if (allowedOrigin) {
-    res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
-    res.setHeader('Vary', 'Origin');
-  }
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Accept, Content-Type');
-}
+const RATE_LIMIT_CONFIG = {
+  bucket: 'stations',
+  limit: 60,
+  windowMs: 60_000,
+};
 
 async function proxyTankerkoenig(upstreamUrl, successCacheControl, res) {
   try {
     const response = await fetch(upstreamUrl, {
       headers: {
         Accept: 'application/json',
-        'User-Agent': 'TankApp/1.0',
+        'User-Agent': APP_USER_AGENT,
       },
       signal: AbortSignal.timeout(8000),
     });
@@ -54,7 +30,17 @@ async function proxyTankerkoenig(upstreamUrl, successCacheControl, res) {
       });
     }
 
-    const data = await response.json();
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(502).json({
+        ok: false,
+        message: 'Ungültige Antwort vom Tankerkönig-Server.',
+      });
+    }
+
     if (data && data.ok === true) {
       res.setHeader('Cache-Control', successCacheControl);
     } else {
@@ -72,13 +58,13 @@ async function proxyTankerkoenig(upstreamUrl, successCacheControl, res) {
     }
     return res.status(502).json({
       ok: false,
-      message: err instanceof Error ? err.message : 'Verbindungsfehler zu Tankerkönig',
+      message: 'Verbindungsfehler zu Tankerkönig. Bitte kurz warten und erneut versuchen.',
     });
   }
 }
 
 export default async function handler(req, res) {
-  setCorsHeaders(req, res);
+  setSecurityAndCorsHeaders(req, res);
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
@@ -86,10 +72,14 @@ export default async function handler(req, res) {
 
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET, OPTIONS');
-    return res.status(405).json({ ok: false, message: 'Methode nicht erlaubt. Nur GET wird unterstützt.' });
+    return res.status(405).json({
+      ok: false,
+      message: 'Methode nicht erlaubt. Nur GET wird unterstützt.',
+    });
   }
 
-  const { lat, lng, rad, id, mode } = req.query || {};
+  const query = req.query || {};
+  const mode = getSingleQueryParam(query.mode);
   const apiKey = process.env.TANKERKOENIG_API_KEY?.trim();
 
   if (mode === 'status') {
@@ -97,6 +87,16 @@ export default async function handler(req, res) {
     return res.status(200).json({
       ok: true,
       proxyConfigured: Boolean(apiKey),
+    });
+  }
+
+  const rateLimit = checkRateLimit(req, RATE_LIMIT_CONFIG);
+  if (!rateLimit.allowed) {
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Retry-After', String(rateLimit.retryAfterSeconds));
+    return res.status(429).json({
+      ok: false,
+      message: 'Zu viele Anfragen. Bitte kurz warten und erneut versuchen.',
     });
   }
 
@@ -110,9 +110,9 @@ export default async function handler(req, res) {
   }
 
   // 1. Station-Details abfragen
-  if (id !== undefined) {
-    const stationId = String(id).trim();
-    if (!UUID_REGEX.test(stationId)) {
+  if (query.id !== undefined) {
+    const stationId = getSingleQueryParam(query.id);
+    if (!stationId || !UUID_REGEX.test(stationId)) {
       return res.status(400).json({ ok: false, message: 'Ungültige Tankstellen-ID.' });
     }
 
@@ -129,12 +129,14 @@ export default async function handler(req, res) {
   }
 
   // 2. Umkreis-Liste abfragen
-  if (lat === undefined || lng === undefined || lat === '' || lng === '') {
+  const rawLat = getSingleQueryParam(query.lat);
+  const rawLng = getSingleQueryParam(query.lng);
+  if (!rawLat || !rawLng) {
     return res.status(400).json({ ok: false, message: 'lat und lng oder id erforderlich' });
   }
 
-  const parsedLat = Number(lat);
-  const parsedLng = Number(lng);
+  const parsedLat = Number(rawLat);
+  const parsedLng = Number(rawLng);
   if (
     !Number.isFinite(parsedLat) ||
     !Number.isFinite(parsedLng) ||
@@ -146,9 +148,10 @@ export default async function handler(req, res) {
     return res.status(400).json({ ok: false, message: 'Ungültige Koordinaten (lat/lng).' });
   }
 
-  const parsedRad = Number(rad);
+  const rawRad = getSingleQueryParam(query.rad);
+  const parsedRad = rawRad ? Number(rawRad) : Number.NaN;
   const clampedRadius = Number.isFinite(parsedRad)
-    ? Math.min(Math.max(parsedRad, 1), 25)
+    ? Math.round(Math.min(Math.max(parsedRad, 1), 25))
     : 5;
 
   const params = new URLSearchParams({

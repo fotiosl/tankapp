@@ -3,6 +3,7 @@ import {
   escapeHtml,
   formatAddress,
   formatCentDiff,
+  formatDistance,
   formatPrice,
   formatPriceParts,
   getFuelPrice,
@@ -43,6 +44,12 @@ describe('formatters', () => {
     expect(formatCentDiff(0.004)).toBe('+0,4 ct');
     expect(formatCentDiff(0.02)).toBe('+2 ct');
     expect(formatCentDiff(0)).toBeNull();
+  });
+
+  it('formats distances cleanly without rendering "1000 m"', () => {
+    expect(formatDistance(0.45)).toBe('450 m');
+    expect(formatDistance(0.9999)).toBe('1,0 km');
+    expect(formatDistance(2.34)).toBe('2,3 km');
   });
 
   it('extracts valid fuel prices', () => {

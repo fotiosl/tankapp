@@ -1,47 +1,70 @@
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import L from 'leaflet';
-import type { Coordinates, FuelType, Station } from '../types';
+import 'leaflet/dist/leaflet.css';
+import './MapView.css';
+import type { Coordinates, FuelType, Station, ThemeMode } from '../types';
 import {
   escapeHtml,
   formatAddress,
+  formatDistance,
   formatPrice,
   formatPriceParts,
   getFuelPrice,
   openNavigation,
 } from '../utils/formatters';
+import { getBrandTheme } from '../utils/brandStyles';
 import { Navigation, Maximize2 } from 'lucide-react';
+
+const EMPTY_FAVORITES: readonly string[] = [];
+
+const TILE_URLS: Record<ThemeMode, string> = {
+  light: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+  dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+};
+
+const TILE_ATTRIBUTION =
+  '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions" target="_blank" rel="noreferrer">CARTO</a>';
 
 interface MapViewProps {
   stations: Station[];
   userCoords: Coordinates;
   selectedFuel: FuelType;
   minPrice: number | null;
+  theme: ThemeMode;
+  isRouteMode?: boolean;
+  routeDestination?: Coordinates | null;
   onCenterUser: () => void;
-  favoriteIds?: string[];
+  favoriteIds?: readonly string[];
   onToggleFavorite?: (stationId: string) => void;
 }
 
-export const MapView: React.FC<MapViewProps> = ({
+export function MapView({
   stations,
   userCoords,
   selectedFuel,
   minPrice,
+  theme,
+  isRouteMode = false,
+  routeDestination = null,
   onCenterUser,
-  favoriteIds = [],
+  favoriteIds = EMPTY_FAVORITES,
   onToggleFavorite,
-}) => {
+}: MapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
+  const tileLayerRef = useRef<L.TileLayer | null>(null);
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
+  const routeLayerRef = useRef<L.LayerGroup | null>(null);
   const userMarkerRef = useRef<L.Marker | null>(null);
 
   const initialCenterRef = useRef<[number, number]>([userCoords.lat, userCoords.lng]);
+  const initialThemeRef = useRef<ThemeMode>(theme);
   const prevCoordsRef = useRef<[number, number]>([userCoords.lat, userCoords.lng]);
   const openPopupStationIdRef = useRef<string | null>(null);
 
   // Initialisiere Leaflet-Karte
   useEffect(() => {
-    if (!mapContainerRef.current || mapInstanceRef.current) return;
+    if (!mapContainerRef.current || mapInstanceRef.current) return undefined;
 
     const map = L.map(mapContainerRef.current, {
       center: initialCenterRef.current,
@@ -49,25 +72,36 @@ export const MapView: React.FC<MapViewProps> = ({
       zoomControl: false,
     });
 
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    const tileLayer = L.tileLayer(TILE_URLS[initialThemeRef.current], {
+      attribution: TILE_ATTRIBUTION,
       maxZoom: 19,
     }).addTo(map);
 
     L.control.zoom({ position: 'topright' }).addTo(map);
 
+    const routeLayer = L.layerGroup().addTo(map);
     const markersLayer = L.layerGroup().addTo(map);
+
+    tileLayerRef.current = tileLayer;
+    routeLayerRef.current = routeLayer;
     markersLayerRef.current = markersLayer;
     mapInstanceRef.current = map;
 
     return () => {
       map.remove();
       mapInstanceRef.current = null;
+      tileLayerRef.current = null;
+      routeLayerRef.current = null;
       markersLayerRef.current = null;
       userMarkerRef.current = null;
     };
   }, []);
+
+  // Kartenkacheln an Light/Dark-Theme anpassen
+  useEffect(() => {
+    if (!tileLayerRef.current) return;
+    tileLayerRef.current.setUrl(TILE_URLS[theme]);
+  }, [theme]);
 
   // Aktualisiere Position des Nutzer-Markers und folge Standortänderungen
   useEffect(() => {
@@ -85,8 +119,8 @@ export const MapView: React.FC<MapViewProps> = ({
         className: 'user-location-marker',
         html: `
           <div style="position: relative; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;">
-            <div style="position: absolute; width: 100%; height: 100%; border-radius: 50%; background-color: #3b82f6; opacity: 0.4; animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>
-            <div style="width: 14px; height: 14px; border-radius: 50%; background-color: #2563eb; border: 2.5px solid #ffffff; box-shadow: 0 2px 6px rgba(0,0,0,0.4);"></div>
+            <div class="user-location-ping-ring" style="position: absolute; width: 100%; height: 100%; border-radius: 50%; background-color: #3b82f6; opacity: 0.45;"></div>
+            <div style="position: relative; width: 14px; height: 14px; border-radius: 50%; background-color: #2563eb; border: 2.5px solid #ffffff; box-shadow: 0 2px 6px rgba(0,0,0,0.4);"></div>
           </div>
         `,
         iconSize: [22, 22],
@@ -99,10 +133,49 @@ export const MapView: React.FC<MapViewProps> = ({
     }
 
     if (coordsChanged) {
-      mapInstanceRef.current.setView([userCoords.lat, userCoords.lng], mapInstanceRef.current.getZoom());
+      mapInstanceRef.current.setView(
+        [userCoords.lat, userCoords.lng],
+        mapInstanceRef.current.getZoom()
+      );
       prevCoordsRef.current = [userCoords.lat, userCoords.lng];
     }
   }, [userCoords.lat, userCoords.lng]);
+
+  // Routenlinie & Ziel-Marker im Routen-Modus darstellen
+  useEffect(() => {
+    if (!mapInstanceRef.current || !routeLayerRef.current) return;
+
+    const routeLayer = routeLayerRef.current;
+    routeLayer.clearLayers();
+
+    if (!isRouteMode || !routeDestination) return;
+
+    const startPoint: [number, number] = [userCoords.lat, userCoords.lng];
+    const destPoint: [number, number] = [routeDestination.lat, routeDestination.lng];
+
+    L.polyline([startPoint, destPoint], {
+      color: '#3b82f6',
+      weight: 3,
+      opacity: 0.75,
+      dashArray: '8 8',
+    }).addTo(routeLayer);
+
+    const destIcon = L.divIcon({
+      className: 'route-dest-marker',
+      html: `
+        <div style="width: 18px; height: 18px; border-radius: 50%; background-color: #10b981; border: 3px solid #ffffff; box-shadow: 0 2px 8px rgba(0,0,0,0.45);"></div>
+      `,
+      iconSize: [18, 18],
+      iconAnchor: [9, 9],
+    });
+
+    L.marker(destPoint, { icon: destIcon })
+      .addTo(routeLayer)
+      .bindTooltip(routeDestination.name || 'Zielort', { permanent: false, direction: 'top' });
+
+    const bounds = L.latLngBounds([startPoint, destPoint]);
+    mapInstanceRef.current.fitBounds(bounds, { padding: [45, 45], maxZoom: 13 });
+  }, [isRouteMode, routeDestination, userCoords.lat, userCoords.lng]);
 
   // Stationen-Marker und Popups sicher über DOM-Knoten rendern
   useEffect(() => {
@@ -111,26 +184,35 @@ export const MapView: React.FC<MapViewProps> = ({
     const layer = markersLayerRef.current;
     layer.clearLayers();
 
+    const favSet = new Set(favoriteIds);
+    const isDark = theme === 'dark';
+
     stations.forEach((station) => {
-      const isFav = favoriteIds.includes(station.id);
+      const isFav = favSet.has(station.id);
       const price = getFuelPrice(station, selectedFuel);
       const priceParts = formatPriceParts(price);
+      const brandTheme = getBrandTheme(station.brand, station.name);
       const isCheapest =
-        price !== null && minPrice !== null && Math.abs(price - minPrice) < 0.0005;
+        station.isOpen &&
+        price !== null &&
+        minPrice !== null &&
+        Math.abs(price - minPrice) < 0.0005;
 
       const priceHtml = priceParts
         ? `${priceParts.main}<sup style="font-size: 9px; margin-left: 1px;">${priceParts.tenth}</sup>€`
         : 'k.A.';
-      const badgeBg = isCheapest ? '#10b981' : station.isOpen ? '#1e293b' : '#64748b';
-      const badgeBorder = isFav ? '#f59e0b' : isCheapest ? '#34d399' : '#475569';
+      const badgeBg = isCheapest ? '#059669' : station.isOpen ? '#0f172a' : '#64748b';
+      const badgeBorder = isFav ? '#f59e0b' : isCheapest ? '#34d399' : brandTheme.accentHex;
       const safeLabel = escapeHtml(
         (station.brand || station.name.split(' ')[0] || 'Tankstelle').slice(0, 10)
       );
 
+      // Dynamisch zentrierte Pille ohne Breiten-Überlauf
       const customIcon = L.divIcon({
         className: 'price-marker',
         html: `
           <div style="
+            transform: translate(-50%, -50%);
             background: ${badgeBg};
             color: #ffffff;
             font-weight: 800;
@@ -143,21 +225,55 @@ export const MapView: React.FC<MapViewProps> = ({
             white-space: nowrap;
             display: inline-flex;
             align-items: center;
-            gap: 3.5px;
+            gap: 4px;
           ">
-            ${isFav ? '<span style="color: #f59e0b; font-size: 12px; line-height: 1;">★</span>' : ''}
+            ${isFav ? '<span style="color: #fbbf24; font-size: 12px; line-height: 1;">★</span>' : ''}
+            <span style="width: 6px; height: 6px; border-radius: 9999px; background: ${brandTheme.accentHex}; flex-shrink: 0;"></span>
             <span>${safeLabel}</span>
-            <span style="background: rgba(0,0,0,0.3); padding: 1px 4px; border-radius: 4px; color: ${isCheapest ? '#a7f3d0' : '#38bdf8'}">${priceHtml}</span>
+            <span style="background: rgba(0,0,0,0.35); padding: 1px 4px; border-radius: 4px; color: ${isCheapest ? '#a7f3d0' : '#7dd3fc'}">${priceHtml}</span>
           </div>
         `,
-        iconSize: [isFav ? 96 : 88, 26],
-        iconAnchor: [isFav ? 48 : 44, 13],
+        iconSize: [0, 0],
+        iconAnchor: [0, 0],
       });
 
       const popupEl = document.createElement('div');
       popupEl.style.fontFamily = '-apple-system, sans-serif';
-      popupEl.style.minWidth = '195px';
+      popupEl.style.minWidth = '205px';
       popupEl.style.padding = '2px';
+
+      const metaRow = document.createElement('div');
+      metaRow.style.display = 'flex';
+      metaRow.style.alignItems = 'center';
+      metaRow.style.justifyContent = 'space-between';
+      metaRow.style.gap = '6px';
+      metaRow.style.marginBottom = '4px';
+
+      const brandPill = document.createElement('span');
+      brandPill.textContent = brandTheme.displayName;
+      brandPill.style.fontSize = '10px';
+      brandPill.style.fontWeight = '800';
+      brandPill.style.textTransform = 'uppercase';
+      brandPill.style.padding = '1px 6px';
+      brandPill.style.borderRadius = '5px';
+      brandPill.style.background = `${brandTheme.accentHex}22`;
+      brandPill.style.border = `1px solid ${brandTheme.accentHex}66`;
+      brandPill.style.color = isDark ? '#e2e8f0' : '#0f172a';
+      metaRow.appendChild(brandPill);
+
+      const statusSpan = document.createElement('span');
+      statusSpan.textContent = station.isOpen ? '● Geöffnet' : '● Geschlossen';
+      statusSpan.style.fontSize = '10px';
+      statusSpan.style.fontWeight = '700';
+      statusSpan.style.color = station.isOpen
+        ? isDark
+          ? '#34d399'
+          : '#047857'
+        : isDark
+        ? '#fb7185'
+        : '#be123c';
+      metaRow.appendChild(statusSpan);
+      popupEl.appendChild(metaRow);
 
       const titleRow = document.createElement('div');
       titleRow.style.fontSize = '13px';
@@ -178,20 +294,20 @@ export const MapView: React.FC<MapViewProps> = ({
       if (isFav) {
         const starSpan = document.createElement('span');
         starSpan.textContent = '★';
-        starSpan.style.color = '#f59e0b';
+        starSpan.style.color = '#fbbf24';
         titleRow.appendChild(starSpan);
       }
       popupEl.appendChild(titleRow);
 
       const addrDiv = document.createElement('div');
       addrDiv.style.fontSize = '11px';
-      addrDiv.style.opacity = '0.72';
+      addrDiv.style.opacity = '0.78';
       addrDiv.style.marginBottom = '6px';
       addrDiv.textContent = `${formatAddress(
         station.street,
         station.houseNumber,
         station.place
-      )} (${station.dist.toFixed(1).replace('.', ',')} km)`;
+      )} (${formatDistance(station.dist)})`;
       popupEl.appendChild(addrDiv);
 
       const priceBox = document.createElement('div');
@@ -199,7 +315,9 @@ export const MapView: React.FC<MapViewProps> = ({
       priceBox.style.justifyContent = 'space-between';
       priceBox.style.alignItems = 'center';
       priceBox.style.marginBottom = '8px';
-      priceBox.style.background = 'rgba(148, 163, 184, 0.16)';
+      priceBox.style.background = isDark
+        ? 'rgba(15, 23, 42, 0.65)'
+        : 'rgba(148, 163, 184, 0.16)';
       priceBox.style.padding = '5px 8px';
       priceBox.style.borderRadius = '8px';
 
@@ -212,7 +330,13 @@ export const MapView: React.FC<MapViewProps> = ({
       const priceVal = document.createElement('span');
       priceVal.style.fontSize = '14px';
       priceVal.style.fontWeight = 'bold';
-      priceVal.style.color = isCheapest ? '#10b981' : '#0284c7';
+      priceVal.style.color = isCheapest
+        ? isDark
+          ? '#34d399'
+          : '#047857'
+        : isDark
+        ? '#38bdf8'
+        : '#0369a1';
       priceVal.textContent = price ? formatPrice(price, 3) : 'Keine Angabe';
 
       priceBox.appendChild(fuelLabel);
@@ -226,8 +350,12 @@ export const MapView: React.FC<MapViewProps> = ({
       const favBtn = document.createElement('button');
       favBtn.type = 'button';
       favBtn.style.flex = '1';
-      favBtn.style.background = isFav ? 'rgba(245, 158, 11, 0.2)' : 'rgba(148, 163, 184, 0.16)';
-      favBtn.style.color = '#d97706';
+      favBtn.style.background = isFav
+        ? 'rgba(245, 158, 11, 0.22)'
+        : isDark
+        ? 'rgba(148, 163, 184, 0.18)'
+        : 'rgba(148, 163, 184, 0.16)';
+      favBtn.style.color = isDark ? '#fbbf24' : '#b45309';
       favBtn.style.border = isFav
         ? '1px solid rgba(245, 158, 11, 0.8)'
         : '1px solid rgba(245, 158, 11, 0.45)';
@@ -247,7 +375,7 @@ export const MapView: React.FC<MapViewProps> = ({
       routeBtn.type = 'button';
       routeBtn.style.flex = '1';
       routeBtn.style.background = '#2563eb';
-      routeBtn.style.color = 'white';
+      routeBtn.style.color = '#ffffff';
       routeBtn.style.border = 'none';
       routeBtn.style.padding = '6px 8px';
       routeBtn.style.borderRadius = '8px';
@@ -281,7 +409,7 @@ export const MapView: React.FC<MapViewProps> = ({
         marker.openPopup();
       }
     });
-  }, [stations, selectedFuel, minPrice, favoriteIds, onToggleFavorite]);
+  }, [stations, selectedFuel, minPrice, favoriteIds, onToggleFavorite, theme]);
 
   const handleCenter = () => {
     if (mapInstanceRef.current) {
@@ -291,20 +419,25 @@ export const MapView: React.FC<MapViewProps> = ({
   };
 
   const handleFitAll = () => {
-    if (!mapInstanceRef.current || stations.length === 0) return;
-    const bounds = L.latLngBounds(stations.map((s) => [s.lat, s.lng]));
-    bounds.extend([userCoords.lat, userCoords.lng]);
+    if (!mapInstanceRef.current) return;
+    const points: [number, number][] = stations.map((s) => [s.lat, s.lng]);
+    points.push([userCoords.lat, userCoords.lng]);
+    if (isRouteMode && routeDestination) {
+      points.push([routeDestination.lat, routeDestination.lng]);
+    }
+    if (points.length === 0) return;
+    const bounds = L.latLngBounds(points);
     mapInstanceRef.current.fitBounds(bounds, { padding: [35, 35], maxZoom: 14 });
   };
 
   return (
     <div
       data-no-pull-refresh="true"
-      className="relative w-full h-[65vh] min-h-[400px] rounded-3xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-xl bg-slate-200 dark:bg-slate-900"
+      className="relative isolate w-full h-[65vh] min-h-[400px] rounded-3xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-xl bg-slate-200 dark:bg-slate-900"
     >
       <div ref={mapContainerRef} className="w-full h-full" />
 
-      {/* Floating Action Buttons */}
+      {/* Floating Action Buttons (isoliert im eigenen Stacking Context, überlagern weder Header noch Modals) */}
       <div className="absolute bottom-4 right-4 z-[400] flex flex-col gap-2">
         {stations.length > 0 && (
           <button
@@ -331,4 +464,6 @@ export const MapView: React.FC<MapViewProps> = ({
       </div>
     </div>
   );
-};
+}
+
+export default MapView;

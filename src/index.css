@@ -1,6 +1,4 @@
 @import "tailwindcss";
-@import "tw-animate-css";
-@import "leaflet/dist/leaflet.css";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -16,6 +14,11 @@
   color-scheme: dark;
 }
 
+html {
+  height: -webkit-fill-available;
+  overscroll-behavior-y: contain;
+}
+
 body {
   margin: 0;
   padding: 0;
@@ -24,15 +27,12 @@ body {
   min-height: 100vh;
   min-height: -webkit-fill-available;
   overflow-x: hidden;
+  overscroll-behavior-y: contain;
 }
 
 :root.dark body {
   background-color: #020617;
   color: #f8fafc;
-}
-
-html {
-  height: -webkit-fill-available;
 }
 
 /* iOS Safe Areas */
@@ -41,6 +41,42 @@ html {
 }
 .pb-safe {
   padding-bottom: env(safe-area-inset-bottom, 20px);
+}
+
+/* Native lightweight animations (replaces tw-animate-css) */
+@keyframes tankapp-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes tankapp-zoom-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-fade-in {
+  animation: tankapp-fade-in 180ms ease-out both;
+}
+
+.animate-zoom-in {
+  animation: tankapp-zoom-in 150ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .animate-zoom-in {
+    animation: none;
+  }
 }
 
 /* Custom scrollbar */
@@ -57,33 +93,4 @@ html {
 }
 :root.dark ::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.2);
-}
-
-/* Leaflet map styling overrides */
-.leaflet-container {
-  width: 100%;
-  height: 100%;
-  border-radius: 1rem;
-  z-index: 10;
-}
-
-.leaflet-popup-content-wrapper {
-  background: #ffffff !important;
-  color: #0f172a !important;
-  border-radius: 1rem !important;
-  box-shadow: 0 20px 25px -5px rgba(15, 23, 42, 0.2) !important;
-  border: 1px solid rgba(15, 23, 42, 0.1);
-}
-.leaflet-popup-tip {
-  background: #ffffff !important;
-}
-
-:root.dark .leaflet-popup-content-wrapper {
-  background: #1e293b !important;
-  color: #f8fafc !important;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5) !important;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-:root.dark .leaflet-popup-tip {
-  background: #1e293b !important;
 }

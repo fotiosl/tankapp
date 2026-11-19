@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import { memo, useState, useRef, useEffect } from 'react';
 import {
   Navigation,
   MapPin,
-  CheckCircle2,
+  CircleCheck,
   Star,
   TrendingDown,
   Share2,
@@ -10,13 +10,15 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
-  Loader2,
-  AlertCircle,
+  LoaderCircle,
+  CircleExclamationPoint,
+  BellRing,
 } from 'lucide-react';
 import type { Station, FuelType, UserSettings, StationDetailData } from '../types';
 import {
   formatAddress,
   formatCentDiff,
+  formatDistance,
   formatPrice,
   formatPriceParts,
   getFuelPrice,
@@ -34,11 +36,18 @@ interface StationCardProps {
   closestStationPrice?: number | null;
   userSettings?: UserSettings;
   isRouteMode?: boolean;
+  isPriceAlertHit?: boolean;
   isFavorite: boolean;
   onToggleFavorite: (stationId: string) => void;
 }
 
-export const StationCard: React.FC<StationCardProps> = ({
+const ALL_FUELS: { type: FuelType; label: string }[] = [
+  { type: 'diesel', label: 'Diesel' },
+  { type: 'e10', label: 'E10' },
+  { type: 'e5', label: 'E5' },
+];
+
+export const StationCard = memo(function StationCard({
   station,
   selectedFuel,
   minPrice,
@@ -46,14 +55,27 @@ export const StationCard: React.FC<StationCardProps> = ({
   closestStationPrice,
   userSettings,
   isRouteMode = false,
+  isPriceAlertHit = false,
   isFavorite,
   onToggleFavorite,
-}) => {
+}: StationCardProps) {
   const [showDetails, setShowDetails] = useState(false);
   const [details, setDetails] = useState<StationDetailData | null>(null);
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [shareState, setShareState] = useState<'idle' | 'copied' | 'error'>('idle');
+
+  const detailsAbortRef = useRef<AbortController | null>(null);
+  const shareTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      detailsAbortRef.current?.abort();
+      if (shareTimeoutRef.current !== null) {
+        clearTimeout(shareTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const currentPrice = getFuelPrice(station, selectedFuel);
   const priceParts = formatPriceParts(currentPrice);
@@ -61,6 +83,7 @@ export const StationCard: React.FC<StationCardProps> = ({
   const addressText = formatAddress(station.street, station.houseNumber, station.place);
 
   const isBestPrice =
+    station.isOpen &&
     currentPrice !== null &&
     minPrice !== null &&
     Math.abs(currentPrice - minPrice) < 0.0005;
@@ -70,9 +93,10 @@ export const StationCard: React.FC<StationCardProps> = ({
       ? formatCentDiff(currentPrice - minPrice)
       : null;
 
-  // Umweg-Ersparnis berechnen (nur im Umkreis-Modus sinnvoll, da dist auf Routen ab Start gemessen wird)
+  // Umweg-Ersparnis nur für geöffnete Stationen im Umkreis-Modus berechnen
   const savings =
     !isRouteMode &&
+    station.isOpen &&
     currentPrice !== null &&
     closestStationPrice !== null &&
     closestStationPrice !== undefined &&
@@ -88,13 +112,16 @@ export const StationCard: React.FC<StationCardProps> = ({
         )
       : null;
 
-  const otherFuels: { type: FuelType; label: string }[] = (
-    [
-      { type: 'diesel', label: 'Diesel' },
-      { type: 'e10', label: 'E10' },
-      { type: 'e5', label: 'E5' },
-    ] as const
-  ).filter((f) => f.type !== selectedFuel);
+  const otherFuels = ALL_FUELS.filter((f) => f.type !== selectedFuel);
+
+  const scheduleShareReset = (delayMs: number) => {
+    if (shareTimeoutRef.current !== null) {
+      clearTimeout(shareTimeoutRef.current);
+    }
+    shareTimeoutRef.current = setTimeout(() => {
+      setShareState('idle');
+    }, delayMs);
+  };
 
   const handleShare = async () => {
     const fuelName = selectedFuel.toUpperCase();
@@ -111,42 +138,53 @@ export const StationCard: React.FC<StationCardProps> = ({
           text: shareText,
           url: mapsUrl,
         });
-      } catch {
-        // Nutzer hat Teilen abgebrochen
+        return;
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          return;
+        }
+        // Bei sonstigen Share-Fehlern Fallback auf Zwischenablage versuchen
       }
-      return;
     }
 
     try {
       await navigator.clipboard.writeText(`${shareText}${mapsUrl}`);
       setShareState('copied');
-      setTimeout(() => setShareState('idle'), 2000);
+      scheduleShareReset(2000);
     } catch {
       setShareState('error');
-      setTimeout(() => setShareState('idle'), 2500);
+      scheduleShareReset(2500);
     }
   };
 
   const loadDetails = async () => {
+    detailsAbortRef.current?.abort();
+    const controller = new AbortController();
+    detailsAbortRef.current = controller;
+
     setIsLoadingDetails(true);
     setDetailsError(null);
     try {
-      const data = await fetchStationDetails(station.id);
+      const data = await fetchStationDetails(station.id, controller.signal);
+      if (controller.signal.aborted) return;
       setDetails(data);
     } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') return;
       setDetailsError(
         err instanceof Error ? err.message : 'Öffnungszeiten konnten nicht geladen werden.'
       );
     } finally {
-      setIsLoadingDetails(false);
+      if (!controller.signal.aborted) {
+        setIsLoadingDetails(false);
+      }
     }
   };
 
-  const toggleDetails = async () => {
+  const toggleDetails = () => {
     const nextOpen = !showDetails;
     setShowDetails(nextOpen);
     if (nextOpen && !details && !isLoadingDetails) {
-      await loadDetails();
+      void loadDetails();
     }
   };
 
@@ -170,8 +208,15 @@ export const StationCard: React.FC<StationCardProps> = ({
 
             {isBestPrice && (
               <span className="flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/15 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30">
-                <CheckCircle2 className="w-3 h-3" />
+                <CircleCheck className="w-3 h-3" />
                 Günstigste
+              </span>
+            )}
+
+            {isPriceAlertHit && (
+              <span className="flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-sky-500/15 dark:bg-sky-500/20 text-sky-700 dark:text-sky-300 border border-sky-500/35">
+                <BellRing className="w-3 h-3" />
+                Wunschpreis
               </span>
             )}
 
@@ -184,7 +229,9 @@ export const StationCard: React.FC<StationCardProps> = ({
             >
               <span
                 className={`w-1.5 h-1.5 rounded-full ${
-                  station.isOpen ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-rose-500 dark:bg-rose-400'
+                  station.isOpen
+                    ? 'bg-emerald-500 dark:bg-emerald-400'
+                    : 'bg-rose-500 dark:bg-rose-400'
                 }`}
               />
               {station.isOpen ? 'Geöffnet' : 'Geschlossen'}
@@ -307,7 +354,9 @@ export const StationCard: React.FC<StationCardProps> = ({
 
           <button
             type="button"
-            onClick={handleShare}
+            onClick={() => {
+              void handleShare();
+            }}
             aria-label="Tankstelle und Preis teilen"
             className="p-1.5 bg-slate-100 dark:bg-slate-900/70 hover:bg-slate-200 dark:hover:bg-slate-700/70 text-slate-700 dark:text-slate-300 rounded-lg border border-slate-200 dark:border-slate-700/60 text-xs transition cursor-pointer flex items-center gap-1"
             title={
@@ -321,16 +370,19 @@ export const StationCard: React.FC<StationCardProps> = ({
             {shareState === 'copied' ? (
               <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
             ) : shareState === 'error' ? (
-              <AlertCircle className="w-3.5 h-3.5 text-rose-500" />
+              <CircleExclamationPoint className="w-3.5 h-3.5 text-rose-500" />
             ) : (
               <Share2 className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
             )}
           </button>
 
           <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 px-1">
-            {station.dist < 1
-              ? `${Math.round(station.dist * 1000)} m`
-              : `${station.dist.toFixed(1).replace('.', ',')} km`}
+            {formatDistance(station.dist)}
+            {isRouteMode && (
+              <span className="text-[10px] font-normal text-slate-400 dark:text-slate-500 ml-0.5">
+                ab Start
+              </span>
+            )}
           </span>
 
           <button
@@ -345,9 +397,9 @@ export const StationCard: React.FC<StationCardProps> = ({
         </div>
       </div>
 
-      {/* Expandable Details (Öffnungszeiten-Wochenplan) */}
+      {/* Expandable Details (Öffnungszeiten-Wochenplan & Sonderzeiten) */}
       {showDetails && (
-        <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700/40 space-y-2 text-xs animate-in fade-in duration-150">
+        <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700/40 space-y-2 text-xs animate-fade-in">
           <div className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-semibold">
             <span className="flex items-center gap-1.5">
               <Clock className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
@@ -362,18 +414,20 @@ export const StationCard: React.FC<StationCardProps> = ({
 
           {isLoadingDetails ? (
             <div className="py-3 flex items-center justify-center gap-2 text-slate-500 dark:text-slate-400">
-              <Loader2 className="w-4 h-4 animate-spin text-blue-500 dark:text-blue-400" />
+              <LoaderCircle className="w-4 h-4 animate-spin text-blue-500 dark:text-blue-400" />
               <span>Öffnungszeiten werden geladen...</span>
             </div>
           ) : detailsError ? (
             <div className="bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 rounded-xl p-2.5 flex items-center justify-between gap-2 text-[11px] text-rose-700 dark:text-rose-300">
               <span className="flex items-center gap-1.5">
-                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <CircleExclamationPoint className="w-3.5 h-3.5 shrink-0" />
                 {detailsError}
               </span>
               <button
                 type="button"
-                onClick={loadDetails}
+                onClick={() => {
+                  void loadDetails();
+                }}
                 className="font-bold underline shrink-0 cursor-pointer"
               >
                 Erneut laden
@@ -381,8 +435,11 @@ export const StationCard: React.FC<StationCardProps> = ({
             </div>
           ) : details?.openingTimes && details.openingTimes.length > 0 ? (
             <div className="bg-slate-50 dark:bg-slate-900/80 rounded-xl p-2.5 border border-slate-200 dark:border-slate-800 space-y-1.5">
-              {details.openingTimes.map((ot, idx) => (
-                <div key={idx} className="flex justify-between items-center text-[11px]">
+              {details.openingTimes.map((ot) => (
+                <div
+                  key={`${ot.text}-${ot.start}-${ot.end}`}
+                  className="flex justify-between items-center text-[11px]"
+                >
                   <span className="text-slate-600 dark:text-slate-400">{ot.text}:</span>
                   <span className="font-semibold text-slate-900 dark:text-slate-200">
                     {ot.start} – {ot.end} Uhr
@@ -397,8 +454,19 @@ export const StationCard: React.FC<StationCardProps> = ({
                 : 'Kein detaillierter Wochenplan von der MTS-K gemeldet.'}
             </div>
           )}
+
+          {details?.overrides && details.overrides.length > 0 && (
+            <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-xl p-2.5 space-y-1 text-[11px] text-amber-900 dark:text-amber-200">
+              <p className="font-semibold">Abweichende Öffnungszeiten / Feiertage:</p>
+              <ul className="list-disc pl-4 space-y-0.5">
+                {details.overrides.map((override) => (
+                  <li key={override}>{override}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
     </article>
   );
-};
+});

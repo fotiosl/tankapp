@@ -36,6 +36,11 @@ export function usePullToRefresh({
   const isPullingRef = useRef(false);
   const pullDistanceRef = useRef(0);
   const isRefreshingRef = useRef(false);
+  const onRefreshRef = useRef(onRefresh);
+
+  useEffect(() => {
+    onRefreshRef.current = onRefresh;
+  }, [onRefresh]);
 
   const updatePullDistance = useCallback((distance: number) => {
     pullDistanceRef.current = distance;
@@ -106,7 +111,7 @@ export function usePullToRefresh({
       setIsRefreshing(true);
       updatePullDistance(pullThreshold);
       try {
-        await onRefresh();
+        await onRefreshRef.current();
       } finally {
         isRefreshingRef.current = false;
         setIsRefreshing(false);
@@ -115,25 +120,29 @@ export function usePullToRefresh({
     } else {
       updatePullDistance(0);
     }
-  }, [pullThreshold, onRefresh, updatePullDistance]);
+  }, [pullThreshold, updatePullDistance]);
 
   useEffect(() => {
     if (disabled) {
       isPullingRef.current = false;
       startYRef.current = null;
       pullDistanceRef.current = 0;
-      return;
+      return undefined;
     }
+
+    const onTouchEndListener = () => {
+      void handleTouchEnd();
+    };
 
     window.addEventListener('touchstart', handleTouchStart, { passive: true });
     window.addEventListener('touchmove', handleTouchMove, { passive: true });
-    window.addEventListener('touchend', handleTouchEnd);
+    window.addEventListener('touchend', onTouchEndListener);
     window.addEventListener('touchcancel', resetPull);
 
     return () => {
       window.removeEventListener('touchstart', handleTouchStart);
       window.removeEventListener('touchmove', handleTouchMove);
-      window.removeEventListener('touchend', handleTouchEnd);
+      window.removeEventListener('touchend', onTouchEndListener);
       window.removeEventListener('touchcancel', resetPull);
     };
   }, [disabled, handleTouchStart, handleTouchMove, handleTouchEnd, resetPull]);
@@ -142,7 +151,7 @@ export function usePullToRefresh({
 
   return {
     pullDistance: effectivePullDistance,
-    isRefreshing,
+    isRefreshing: disabled ? false : isRefreshing,
     isTriggered: effectivePullDistance >= pullThreshold,
   };
 }

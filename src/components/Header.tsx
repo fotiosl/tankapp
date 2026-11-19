@@ -1,4 +1,3 @@
-import React from 'react';
 import { Fuel, Settings, Sparkles, Smartphone, Bell, BellRing, Sun, Moon } from 'lucide-react';
 import type { ThemeMode } from '../types';
 
@@ -8,19 +7,21 @@ interface HeaderProps {
   onOpenPriceAlert: () => void;
   isAlertActive?: boolean;
   isDemoMode: boolean;
+  showInstallButton?: boolean;
   theme: ThemeMode;
   onToggleTheme: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({
+export function Header({
   onOpenSettings,
   onOpenInstallGuide,
   onOpenPriceAlert,
   isAlertActive = false,
   isDemoMode,
+  showInstallButton = true,
   theme,
   onToggleTheme,
-}) => {
+}: HeaderProps) {
   return (
     <header className="sticky top-0 z-40 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800/80 px-4 pt-safe pb-3 transition-colors">
       <div className="flex items-center justify-between max-w-2xl mx-auto">
@@ -36,7 +37,9 @@ export const Header: React.FC<HeaderProps> = ({
                 Live
               </span>
             </h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Spritpreise in Echtzeit</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Spritpreise in Echtzeit
+            </p>
           </div>
         </div>
 
@@ -93,15 +96,17 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </button>
 
-          <button
-            type="button"
-            onClick={onOpenInstallGuide}
-            className="p-2 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700/80 rounded-xl border border-slate-200 dark:border-slate-700/60 transition-colors cursor-pointer flex items-center justify-center"
-            title="Auf iPhone installieren"
-            aria-label="Installationsanleitung für iPhone öffnen"
-          >
-            <Smartphone className="w-4 h-4 text-sky-600 dark:text-sky-400" />
-          </button>
+          {showInstallButton && (
+            <button
+              type="button"
+              onClick={onOpenInstallGuide}
+              className="p-2 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700/80 rounded-xl border border-slate-200 dark:border-slate-700/60 transition-colors cursor-pointer flex items-center justify-center"
+              title="App auf Homescreen installieren"
+              aria-label="Installationsanleitung öffnen"
+            >
+              <Smartphone className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+            </button>
+          )}
 
           <button
             type="button"
@@ -116,4 +121,4 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
     </header>
   );
-};
+}

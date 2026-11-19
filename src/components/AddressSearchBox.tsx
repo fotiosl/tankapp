@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Search, MapPin, X, Loader2, AlertCircle } from 'lucide-react';
+import { useState, useRef, useEffect, type FormEvent } from 'react';
+import { Search, MapPin, X, LoaderCircle, CircleExclamationPoint } from 'lucide-react';
 import { searchAddress, type GeocodeResult } from '../services/api';
 
 interface AddressSearchBoxProps {
@@ -7,32 +7,36 @@ interface AddressSearchBoxProps {
   submitLabel: string;
   onSelect: (result: GeocodeResult) => void;
   onClose?: () => void;
-  autoFocus?: boolean;
+  focusOnMount?: boolean;
   pinColorClass?: string;
 }
 
-export const AddressSearchBox: React.FC<AddressSearchBoxProps> = ({
+export function AddressSearchBox({
   placeholder,
   submitLabel,
   onSelect,
   onClose,
-  autoFocus = false,
+  focusOnMount = false,
   pinColorClass = 'text-blue-500 dark:text-blue-400',
-}) => {
+}: AddressSearchBoxProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<GeocodeResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
+    if (focusOnMount) {
+      inputRef.current?.focus();
+    }
     return () => {
       abortRef.current?.abort();
     };
-  }, []);
+  }, [focusOnMount]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const trimmed = query.trim();
     if (trimmed.length < 2) {
@@ -72,6 +76,7 @@ export const AddressSearchBox: React.FC<AddressSearchBoxProps> = ({
         <div className="relative flex-1">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
+            ref={inputRef}
             type="text"
             value={query}
             onChange={(e) => {
@@ -81,7 +86,6 @@ export const AddressSearchBox: React.FC<AddressSearchBoxProps> = ({
             placeholder={placeholder}
             aria-label={placeholder}
             className="w-full bg-slate-50 dark:bg-slate-900/90 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 rounded-xl pl-9 pr-3 py-2 border border-slate-300 dark:border-slate-700 focus:outline-none focus:border-blue-500"
-            autoFocus={autoFocus}
           />
         </div>
         <button
@@ -89,7 +93,7 @@ export const AddressSearchBox: React.FC<AddressSearchBoxProps> = ({
           disabled={isSearching}
           className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold cursor-pointer shrink-0"
         >
-          {isSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : submitLabel}
+          {isSearching ? <LoaderCircle className="w-4 h-4 animate-spin" /> : submitLabel}
         </button>
         {onClose && (
           <button
@@ -105,7 +109,7 @@ export const AddressSearchBox: React.FC<AddressSearchBoxProps> = ({
 
       {searchError && (
         <p className="text-xs text-rose-600 dark:text-rose-300 flex items-center gap-1.5 px-1">
-          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+          <CircleExclamationPoint className="w-3.5 h-3.5 shrink-0" />
           <span>{searchError}</span>
         </p>
       )}
@@ -118,9 +122,9 @@ export const AddressSearchBox: React.FC<AddressSearchBoxProps> = ({
 
       {results.length > 0 && (
         <div className="space-y-1 pt-1 max-h-48 overflow-y-auto">
-          {results.map((r, i) => (
+          {results.map((r) => (
             <button
-              key={`${r.lat}-${r.lng}-${i}`}
+              key={`${r.lat}-${r.lng}-${r.displayName}`}
               type="button"
               onClick={() => {
                 onSelect(r);
@@ -138,4 +142,4 @@ export const AddressSearchBox: React.FC<AddressSearchBoxProps> = ({
       )}
     </div>
   );
-};
+}

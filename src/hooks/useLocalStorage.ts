@@ -1,38 +1,43 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 
 export function useLocalStorage<T>(
   key: string,
-  defaultValue: T,
-  parse?: (raw: string) => T | null
+  defaultValue: T | (() => T),
+  parse: (raw: string) => T | null
 ): [T, (value: T | ((prev: T) => T)) => void] {
   const [storedValue, setStoredValue] = useState<T>(() => {
+    const resolveDefault = (): T =>
+      defaultValue instanceof Function ? defaultValue() : defaultValue;
+
     try {
       const raw = localStorage.getItem(key);
-      if (raw === null) return defaultValue;
-      if (parse) {
-        const parsed = parse(raw);
-        return parsed !== null ? parsed : defaultValue;
-      }
-      return JSON.parse(raw) as T;
+      if (raw === null) return resolveDefault();
+      const parsed = parse(raw);
+      return parsed !== null ? parsed : resolveDefault();
     } catch {
-      return defaultValue;
+      return resolveDefault();
     }
   });
 
+  const valueRef = useRef<T>(storedValue);
+
+  useEffect(() => {
+    valueRef.current = storedValue;
+  }, [storedValue]);
+
   const setValue = useCallback(
     (value: T | ((prev: T) => T)) => {
-      setStoredValue((prev) => {
-        const next = value instanceof Function ? value(prev) : value;
-        try {
-          const serialized = typeof next === 'string' && parse ? next : JSON.stringify(next);
-          localStorage.setItem(key, serialized);
-        } catch {
-          // Ignore storage quota / private mode errors
-        }
-        return next;
-      });
+      const next = value instanceof Function ? value(valueRef.current) : value;
+      valueRef.current = next;
+      setStoredValue(next);
+      try {
+        const serialized = typeof next === 'string' ? next : JSON.stringify(next);
+        localStorage.setItem(key, serialized);
+      } catch {
+        // Ignore storage quota / private mode errors
+      }
     },
-    [key, parse]
+    [key]
   );
 
   return [storedValue, setValue];

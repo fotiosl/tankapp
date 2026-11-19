@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import { useState, useRef, useEffect, type FormEvent } from 'react';
 import {
   X,
   KeyRound,
   ExternalLink,
   Check,
-  AlertCircle,
-  Loader2,
+  CircleExclamationPoint,
+  LoaderCircle,
   Sparkles,
   ShieldCheck,
   Eye,
@@ -29,11 +29,11 @@ interface SettingsModalProps {
   apiStatus: ApiStatusInfo;
 }
 
-const SettingsModalContent: React.FC<Omit<SettingsModalProps, 'isOpen'>> = ({
+function SettingsModalContent({
   onClose,
   onModeChanged,
   apiStatus,
-}) => {
+}: Omit<SettingsModalProps, 'isOpen'>) {
   const [apiKey, setApiKey] = useState(() => getCustomApiKey());
   const [showKey, setShowKey] = useState(false);
   const [status, setStatus] = useState<{
@@ -41,11 +41,35 @@ const SettingsModalContent: React.FC<Omit<SettingsModalProps, 'isOpen'>> = ({
     message?: string;
   }>({ type: 'idle' });
 
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current !== null) {
+        clearTimeout(timeoutRef.current);
+      }
+      abortRef.current?.abort();
+    };
+  }, []);
+
+  const scheduleClose = (delayMs: number) => {
+    if (timeoutRef.current !== null) {
+      clearTimeout(timeoutRef.current);
+    }
+    timeoutRef.current = setTimeout(() => {
+      onModeChanged();
+      onClose();
+    }, delayMs);
+  };
+
   const hasDevKey = Boolean(getDevEnvApiKey());
   const isProxyOrDevConfigured = apiStatus.proxyConfigured === true || hasDevKey;
+  const isBusy = status.type === 'loading' || status.type === 'success';
 
-  const handleSave = async (e: React.FormEvent) => {
+  const handleSave = async (e: FormEvent) => {
     e.preventDefault();
+    if (isBusy) return;
     const clean = apiKey.trim();
 
     if (!clean) {
@@ -53,56 +77,60 @@ const SettingsModalContent: React.FC<Omit<SettingsModalProps, 'isOpen'>> = ({
         enableStandardProxyMode();
         setStatus({ type: 'success', message: 'Standard-Proxy wieder aktiviert.' });
       } else {
-        enableDemoMode();
-        setStatus({ type: 'success', message: 'Demo-Modus aktiviert.' });
+        enableDemoMode(true);
+        setStatus({ type: 'success', message: 'Eigener Key entfernt – Demo-Modus aktiviert.' });
       }
-      setTimeout(() => {
-        onModeChanged();
-        onClose();
-      }, 700);
+      scheduleClose(700);
       return;
     }
 
-    setStatus({ type: 'loading', message: 'Prüfe API-Key mit Tankerkönig...' });
-    const result = await validateApiKey(clean);
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
 
-    if (result.valid) {
-      saveApiKey(clean);
-      setStatus({ type: 'success', message: 'API-Key erfolgreich gespeichert und verifiziert!' });
-      setTimeout(() => {
-        onModeChanged();
-        onClose();
-      }, 800);
-    } else {
+    setStatus({ type: 'loading', message: 'Prüfe API-Key mit Tankerkönig...' });
+    try {
+      const result = await validateApiKey(clean, controller.signal);
+      if (controller.signal.aborted) return;
+
+      if (result.valid) {
+        saveApiKey(clean);
+        setStatus({
+          type: 'success',
+          message: 'API-Key erfolgreich gespeichert und verifiziert!',
+        });
+        scheduleClose(800);
+      } else {
+        setStatus({
+          type: 'error',
+          message: result.message || 'Der eingegebene API-Key ist ungültig.',
+        });
+      }
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') return;
       setStatus({
         type: 'error',
-        message: result.message || 'Der eingegebene API-Key ist ungültig.',
+        message: err instanceof Error ? err.message : 'Prüfung fehlgeschlagen.',
       });
     }
   };
 
   const handleUseDemo = () => {
-    enableDemoMode();
+    if (isBusy) return;
+    enableDemoMode(false);
     setStatus({ type: 'success', message: 'Demo-Modus aktiv (Testdaten).' });
-    setTimeout(() => {
-      onModeChanged();
-      onClose();
-    }, 600);
+    scheduleClose(600);
   };
 
   const handleUseStandardProxy = () => {
+    if (isBusy) return;
     enableStandardProxyMode();
     setApiKey('');
     setStatus({
       type: 'success',
-      message: isProxyOrDevConfigured
-        ? 'Server-Proxy wieder aktiv.'
-        : 'Eigener Key gelöscht.',
+      message: isProxyOrDevConfigured ? 'Server-Proxy wieder aktiv.' : 'Eigener Key gelöscht.',
     });
-    setTimeout(() => {
-      onModeChanged();
-      onClose();
-    }, 600);
+    scheduleClose(600);
   };
 
   return (
@@ -194,7 +222,12 @@ const SettingsModalContent: React.FC<Omit<SettingsModalProps, 'isOpen'>> = ({
       )}
 
       {/* Input Form */}
-      <form onSubmit={handleSave} className="space-y-4">
+      <form
+        onSubmit={(e) => {
+          void handleSave(e);
+        }}
+        className="space-y-4"
+      >
         <div>
           <label
             htmlFor="tankapp-api-key-input"
@@ -208,8 +241,9 @@ const SettingsModalContent: React.FC<Omit<SettingsModalProps, 'isOpen'>> = ({
               type={showKey ? 'text' : 'password'}
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
+              disabled={isBusy}
               placeholder="z.B. xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-              className="w-full bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-xl pl-3.5 pr-11 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono tracking-wider"
+              className="w-full bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-xl pl-3.5 pr-11 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono tracking-wider disabled:opacity-60"
             />
             <button
               type="button"
@@ -237,13 +271,13 @@ const SettingsModalContent: React.FC<Omit<SettingsModalProps, 'isOpen'>> = ({
             }`}
           >
             {status.type === 'loading' && (
-              <Loader2 className="w-4 h-4 animate-spin text-blue-600 dark:text-blue-400 shrink-0" />
+              <LoaderCircle className="w-4 h-4 animate-spin text-blue-600 dark:text-blue-400 shrink-0" />
             )}
             {status.type === 'success' && (
               <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
             )}
             {status.type === 'error' && (
-              <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0" />
+              <CircleExclamationPoint className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0" />
             )}
             <span>{status.message}</span>
           </div>
@@ -252,12 +286,12 @@ const SettingsModalContent: React.FC<Omit<SettingsModalProps, 'isOpen'>> = ({
         <div className="flex flex-col gap-2 pt-1">
           <button
             type="submit"
-            disabled={status.type === 'loading'}
+            disabled={isBusy}
             className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-sm font-bold transition shadow-lg shadow-blue-600/25 cursor-pointer flex items-center justify-center gap-2"
           >
             {status.type === 'loading' ? (
               <>
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <LoaderCircle className="w-4 h-4 animate-spin" />
                 Prüfe Key...
               </>
             ) : (
@@ -268,8 +302,9 @@ const SettingsModalContent: React.FC<Omit<SettingsModalProps, 'isOpen'>> = ({
           {(apiStatus.hasCustomKey || (apiStatus.mode === 'demo' && isProxyOrDevConfigured)) && (
             <button
               type="button"
+              disabled={isBusy}
               onClick={handleUseStandardProxy}
-              className="w-full py-2 px-4 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 rounded-xl text-xs font-semibold transition cursor-pointer"
+              className="w-full py-2 px-4 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 disabled:opacity-50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 rounded-xl text-xs font-semibold transition cursor-pointer"
             >
               {isProxyOrDevConfigured
                 ? 'Standard-Proxy nutzen (Live-Daten)'
@@ -280,8 +315,9 @@ const SettingsModalContent: React.FC<Omit<SettingsModalProps, 'isOpen'>> = ({
           {apiStatus.mode !== 'demo' && (
             <button
               type="button"
+              disabled={isBusy}
               onClick={handleUseDemo}
-              className="w-full py-2.5 px-4 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer"
+              className="w-full py-2.5 px-4 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer"
             >
               Demo-Modus verwenden (Testdaten)
             </button>
@@ -290,14 +326,14 @@ const SettingsModalContent: React.FC<Omit<SettingsModalProps, 'isOpen'>> = ({
       </form>
     </>
   );
-};
+}
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({
+export function SettingsModal({
   isOpen,
   onClose,
   onModeChanged,
   apiStatus,
-}) => {
+}: SettingsModalProps) {
   return (
     <ModalShell isOpen={isOpen} onClose={onClose} titleId="settings-modal-title">
       <SettingsModalContent
@@ -307,4 +343,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       />
     </ModalShell>
   );
-};
+}
+
+export default SettingsModal;

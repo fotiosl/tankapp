@@ -1,50 +1,55 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { lazy, Suspense, useState, useEffect, useMemo, useCallback } from 'react';
 import {
   List,
   Map as MapIcon,
   RefreshCw,
-  AlertTriangle,
+  TriangleExclamationPoint,
   SearchX,
   Compass,
+  WifiOff,
+  BellRing,
+  Info,
+  LoaderCircle,
 } from 'lucide-react';
 import type {
+  ApiStatusInfo,
   Coordinates,
   FuelType,
   PriceAlert,
   SortMode,
-  Station,
   UserSettings,
 } from './types';
-import {
-  fetchProxyStatus,
-  fetchStations,
-  fetchStationsAlongRoute,
-  getApiStatus,
-} from './services/api';
+import { fetchProxyStatus, getApiStatus, subscribeProxyStatus } from './services/api';
 import { Header } from './components/Header';
 import { FuelSelector } from './components/FuelSelector';
 import { SearchAndFilters } from './components/SearchAndFilters';
 import { StationCard } from './components/StationCard';
-import { MapView } from './components/MapView';
-import { SettingsModal } from './components/SettingsModal';
-import { PWAInstallGuideModal } from './components/PWAInstallGuideModal';
-import { PriceAlertModal } from './components/PriceAlertModal';
 import { formatPrice, getFuelPrice } from './utils/formatters';
+import { matchesBrandOrSearch } from './utils/brandStyles';
 import { DEFAULT_USER_SETTINGS } from './utils/calculator';
+import { isFuelType, isRecord, parseJsonSafe } from './utils/typeGuards';
 import { usePullToRefresh } from './hooks/usePullToRefresh';
 import { useFavorites } from './hooks/useFavorites';
 import { useTheme } from './hooks/useTheme';
 import { useGeolocation } from './hooks/useGeolocation';
 import { useLocalStorage } from './hooks/useLocalStorage';
+import { useStations } from './hooks/useStations';
+import { usePriceAlert } from './hooks/usePriceAlert';
+import { usePwaInstall } from './hooks/usePwaInstall';
+
+const MapView = lazy(() => import('./components/MapView'));
+const SettingsModal = lazy(() => import('./components/SettingsModal'));
+const PriceAlertModal = lazy(() => import('./components/PriceAlertModal'));
+const PWAInstallGuideModal = lazy(() => import('./components/PWAInstallGuideModal'));
 
 const parseFuelType = (raw: string): FuelType | null =>
-  raw === 'diesel' || raw === 'e10' || raw === 'e5' ? raw : null;
+  isFuelType(raw) ? raw : null;
 
 const parseRawString = (raw: string): string => raw;
 
 const parseRadius = (raw: string): number | null => {
   const val = Number(raw);
-  return Number.isFinite(val) && val >= 1 && val <= 25 ? val : null;
+  return Number.isFinite(val) && val >= 1 && val <= 25 ? Math.round(val) : null;
 };
 
 const parseSortMode = (raw: string): SortMode | null =>
@@ -53,15 +58,44 @@ const parseSortMode = (raw: string): SortMode | null =>
 const parseOnlyOpen = (raw: string): boolean | null =>
   raw === 'true' ? true : raw === 'false' ? false : null;
 
+const parseUserSettings = (raw: string): UserSettings | null => {
+  const parsed = parseJsonSafe(raw);
+  if (!isRecord(parsed)) return null;
+  const vol = typeof parsed.tankVolumeLiters === 'number' ? parsed.tankVolumeLiters : Number.NaN;
+  const cons =
+    typeof parsed.consumptionPer100Km === 'number' ? parsed.consumptionPer100Km : Number.NaN;
+  if (!Number.isFinite(vol) || !Number.isFinite(cons)) return null;
+  return {
+    tankVolumeLiters: Math.max(10, Math.min(vol, 150)),
+    consumptionPer100Km: Math.max(3, Math.min(cons, 25)),
+  };
+};
+
+const parsePriceAlert = (raw: string): PriceAlert | null => {
+  const parsed = parseJsonSafe(raw);
+  if (!isRecord(parsed)) return null;
+  const fuel = typeof parsed.fuelType === 'string' ? parseFuelType(parsed.fuelType) : null;
+  const target = typeof parsed.targetPrice === 'number' ? parsed.targetPrice : Number.NaN;
+  if (typeof parsed.enabled !== 'boolean' || !fuel || !Number.isFinite(target) || target <= 0) {
+    return null;
+  }
+  return {
+    enabled: parsed.enabled,
+    fuelType: fuel,
+    targetPrice: target,
+  };
+};
+
 const DEFAULT_PRICE_ALERT: PriceAlert = {
   enabled: false,
   fuelType: 'diesel',
   targetPrice: 1.609,
 };
 
-export const App: React.FC = () => {
+export function App() {
   const { theme, toggleTheme } = useTheme();
   const { favoriteIds, toggleFavorite } = useFavorites();
+  const { isStandalone, canPromptNativeInstall, triggerNativeInstall } = usePwaInstall();
   const {
     coords,
     setCoords,
@@ -72,7 +106,7 @@ export const App: React.FC = () => {
     requestCurrentLocation,
   } = useGeolocation();
 
-  // Persistierte Nutzer-Einstellungen
+  // Persistierte Nutzer-Einstellungen (mit Laufzeit-Validierung)
   const [fuelType, setFuelType] = useLocalStorage<FuelType>(
     'tankapp_fuel_type',
     'diesel',
@@ -100,11 +134,13 @@ export const App: React.FC = () => {
   );
   const [userSettings, setUserSettings] = useLocalStorage<UserSettings>(
     'tankapp_user_settings',
-    DEFAULT_USER_SETTINGS
+    DEFAULT_USER_SETTINGS,
+    parseUserSettings
   );
   const [priceAlert, setPriceAlert] = useLocalStorage<PriceAlert>(
     'tankapp_price_alert',
-    DEFAULT_PRICE_ALERT
+    DEFAULT_PRICE_ALERT,
+    parsePriceAlert
   );
 
   const [onlyFavorites, setOnlyFavorites] = useState(false);
@@ -114,202 +150,86 @@ export const App: React.FC = () => {
   const [isRouteMode, setIsRouteMode] = useState(false);
   const [routeDest, setRouteDest] = useState<Coordinates | null>(null);
 
-  // API-Status (Proxy vs. Custom vs. Demo)
-  const [proxyConfigured, setProxyConfigured] = useState<boolean | null>(null);
-  const [apiModeVersion, setApiModeVersion] = useState(0);
-
-  const apiStatus = useMemo(
-    () => {
-      void apiModeVersion;
-      return getApiStatus(proxyConfigured);
-    },
-    [proxyConfigured, apiModeVersion]
-  );
-
-  // Stations State
-  const [stations, setStations] = useState<Station[]>([]);
-  const [isLoadingStations, setIsLoadingStations] = useState(false);
-  const [fetchError, setFetchError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  // API-Status reaktiv mit Proxy-Cache synchronisieren
+  const [apiStatus, setApiStatus] = useState<ApiStatusInfo>(() => getApiStatus());
 
   // Modals
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isInstallGuideOpen, setIsInstallGuideOpen] = useState(false);
   const [isPriceAlertOpen, setIsPriceAlertOpen] = useState(false);
 
-  const fetchControllerRef = useRef<AbortController | null>(null);
-  const [refreshNonce, setRefreshNonce] = useState(0);
-  const forceNextRefreshRef = useRef(false);
-
-  // Prüfe Proxy-Verfügbarkeit einmalig beim Start
   useEffect(() => {
+    const unsubscribe = subscribeProxyStatus((configured) => {
+      setApiStatus(getApiStatus(configured));
+    });
+
     const controller = new AbortController();
-    fetchProxyStatus(controller.signal).then((configured) => {
+    void fetchProxyStatus(controller.signal).then((configured) => {
       if (!controller.signal.aborted) {
-        setProxyConfigured(configured);
+        setApiStatus(getApiStatus(configured));
       }
     });
-    return () => controller.abort();
-  }, []);
-
-  // Tankstellen laden bei relevanten Änderungen (mit AbortController gegen Race Conditions)
-  useEffect(() => {
-    if (!hasResolvedInitialLocation) return;
-    if (isRouteMode && !routeDest) return;
-
-    fetchControllerRef.current?.abort();
-    const controller = new AbortController();
-    fetchControllerRef.current = controller;
-
-    const forceRefresh = forceNextRefreshRef.current;
-    forceNextRefreshRef.current = false;
-
-    const runFetch = async () => {
-      await Promise.resolve();
-      if (controller.signal.aborted) return;
-
-      setIsLoadingStations(true);
-      setFetchError(null);
-
-      try {
-        const data =
-          isRouteMode && routeDest
-            ? await fetchStationsAlongRoute(coords, routeDest, 4, {
-                forceRefresh,
-                signal: controller.signal,
-              })
-            : await fetchStations(coords, radiusKm, {
-                forceRefresh,
-                signal: controller.signal,
-              });
-
-        if (controller.signal.aborted) return;
-        setStations(data);
-        setLastUpdated(new Date());
-      } catch (err: unknown) {
-        if (err instanceof Error && err.name === 'AbortError') return;
-        const message =
-          err instanceof Error ? err.message : 'Unerwarteter Fehler beim Laden';
-        setFetchError(message);
-      } finally {
-        if (!controller.signal.aborted) {
-          setIsLoadingStations(false);
-        }
-      }
-    };
-
-    void runFetch();
 
     return () => {
+      unsubscribe();
       controller.abort();
     };
-  }, [hasResolvedInitialLocation, coords, radiusKm, isRouteMode, routeDest, refreshNonce]);
-
-  const handleManualRefresh = useCallback(() => {
-    forceNextRefreshRef.current = true;
-    setRefreshNonce((n) => n + 1);
   }, []);
+
+  const {
+    stations,
+    isLoadingStations,
+    fetchError,
+    routeWarning,
+    lastUpdated,
+    isOffline,
+    isShowingCachedOffline,
+    refresh: refreshStations,
+  } = useStations({
+    coords,
+    radiusKm,
+    isRouteMode,
+    routeDest,
+    hasResolvedInitialLocation,
+  });
 
   const handleApiModeChanged = useCallback(() => {
-    setApiModeVersion((v) => v + 1);
-    forceNextRefreshRef.current = true;
-    setRefreshNonce((n) => n + 1);
-  }, []);
+    setApiStatus(getApiStatus());
+    void refreshStations();
+  }, [refreshStations]);
 
-  // Pull-to-Refresh auf mobilen Endgeräten (deaktiviert in Kartenansicht und bei offenen Modals)
+  const handleCloseSettings = useCallback(() => setIsSettingsOpen(false), []);
+  const handleClosePriceAlert = useCallback(() => setIsPriceAlertOpen(false), []);
+  const handleCloseInstallGuide = useCallback(() => setIsInstallGuideOpen(false), []);
+
+  // Pull-to-Refresh wartet jetzt echt auf den laufenden Fetch
   const {
     pullDistance,
     isRefreshing: isPullRefreshing,
     isTriggered,
   } = usePullToRefresh({
-    onRefresh: handleManualRefresh,
+    onRefresh: refreshStations,
     disabled: viewMode === 'map' || isSettingsOpen || isInstallGuideOpen || isPriceAlertOpen,
   });
 
-  // Wunschpreis-Prüfung & Browser-Notification (nur geöffnete Stationen)
-  useEffect(() => {
-    if (!priceAlert.enabled || stations.length === 0) return;
-    if (
-      typeof window === 'undefined' ||
-      !('Notification' in window) ||
-      Notification.permission !== 'granted'
-    ) {
-      return;
-    }
+  // Wunschpreis-Prüfung (In-App-Banner + SW/Browser-Benachrichtigung)
+  const alertHit = usePriceAlert(stations, priceAlert);
 
-    let cheapestHit: { name: string; price: number } | null = null;
-    for (const s of stations) {
-      if (!s.isOpen) continue;
-      const p = getFuelPrice(s, priceAlert.fuelType);
-      if (p !== null && p <= priceAlert.targetPrice) {
-        if (!cheapestHit || p < cheapestHit.price) {
-          cheapestHit = { name: s.name, price: p };
-        }
-      }
-    }
-
-    if (cheapestHit) {
-      const alertSignature = `${priceAlert.fuelType}:${priceAlert.targetPrice.toFixed(3)}`;
-      const lastNotifiedRaw = localStorage.getItem('tankapp_last_alert_meta');
-      const now = Date.now();
-      let shouldNotify = true;
-
-      if (lastNotifiedRaw) {
-        try {
-          const parsed = JSON.parse(lastNotifiedRaw) as { sig?: string; time?: number };
-          if (
-            parsed.sig === alertSignature &&
-            typeof parsed.time === 'number' &&
-            now - parsed.time <= 1000 * 60 * 60 * 4
-          ) {
-            shouldNotify = false;
-          }
-        } catch {
-          // Ignore corrupted alert meta
-        }
-      }
-
-      if (shouldNotify) {
-        try {
-          new Notification(
-            `⛽ Wunschpreis erreicht: ${formatPrice(cheapestHit.price, 3)}!`,
-            {
-              body: `${cheapestHit.name} hat deinen Wunschpreis unterschritten!`,
-              icon: '/icon-192.png',
-            }
-          );
-          localStorage.setItem(
-            'tankapp_last_alert_meta',
-            JSON.stringify({ sig: alertSignature, time: now })
-          );
-        } catch {
-          // Ignore notification constructor errors (e.g. mobile browsers)
-        }
-      }
-    }
-  }, [stations, priceAlert]);
+  const favoriteSet = useMemo(() => new Set(favoriteIds), [favoriteIds]);
 
   // Gefilterte und sortierte Tankstellen
   const filteredStations = useMemo(() => {
-    const term = searchTerm.trim().toLowerCase();
-
     return stations
       .filter((station) => {
-        if (onlyFavorites && !favoriteIds.includes(station.id)) {
+        if (onlyFavorites && !favoriteSet.has(station.id)) {
           return false;
         }
-
-        if (term) {
-          const nameMatch = station.name?.toLowerCase().includes(term);
-          const brandMatch = station.brand?.toLowerCase().includes(term);
-          const streetMatch = station.street?.toLowerCase().includes(term);
-          if (!nameMatch && !brandMatch && !streetMatch) return false;
+        if (searchTerm && !matchesBrandOrSearch(station, searchTerm)) {
+          return false;
         }
-
         if (onlyOpen && !station.isOpen) {
           return false;
         }
-
         return true;
       })
       .sort((a, b) => {
@@ -333,41 +253,44 @@ export const App: React.FC = () => {
 
         return a.dist - b.dist;
       });
-  }, [stations, searchTerm, onlyOpen, onlyFavorites, favoriteIds, sortMode, fuelType]);
+  }, [stations, searchTerm, onlyOpen, onlyFavorites, favoriteSet, sortMode, fuelType]);
 
-  // Minimaler Preis für den ausgewählten Kraftstoff
+  // Minimaler Preis ausschließlich unter geöffneten Stationen bestimmen
   const minPrice = useMemo(() => {
     let min: number | null = null;
-    filteredStations.forEach((s) => {
+    for (const s of filteredStations) {
+      if (!s.isOpen) continue;
       const p = getFuelPrice(s, fuelType);
       if (p !== null && (min === null || p < min)) {
         min = p;
       }
-    });
+    }
     return min;
   }, [filteredStations, fuelType]);
 
-  // Nächstgelegene Station für Umweg-Berechnung
+  // Nächstgelegene geöffnete Station für Umweg-Berechnung (O(N))
   const closestStation = useMemo(() => {
-    return (
-      stations
-        .filter((s) => s.isOpen && getFuelPrice(s, fuelType) !== null)
-        .sort((a, b) => a.dist - b.dist)[0] || null
-    );
+    let closest: (typeof stations)[number] | null = null;
+    for (const s of stations) {
+      if (!s.isOpen || getFuelPrice(s, fuelType) === null) continue;
+      if (!closest || s.dist < closest.dist) {
+        closest = s;
+      }
+    }
+    return closest;
   }, [stations, fuelType]);
 
-  const closestStationPrice = useMemo(() => {
-    return closestStation ? getFuelPrice(closestStation, fuelType) : null;
-  }, [closestStation, fuelType]);
+  const closestStationPrice = useMemo(
+    () => (closestStation ? getFuelPrice(closestStation, fuelType) : null),
+    [closestStation, fuelType]
+  );
 
   const minDist = closestStation ? closestStation.dist : 0;
 
   return (
     <div
       className={`min-h-screen ${
-        theme === 'light'
-          ? 'bg-slate-100 text-slate-900'
-          : 'bg-slate-950 text-slate-100'
+        theme === 'light' ? 'bg-slate-100 text-slate-900' : 'bg-slate-950 text-slate-100'
       } flex flex-col font-sans antialiased selection:bg-blue-600 selection:text-white transition-colors`}
     >
       <Header
@@ -376,6 +299,7 @@ export const App: React.FC = () => {
         onOpenPriceAlert={() => setIsPriceAlertOpen(true)}
         isAlertActive={priceAlert.enabled}
         isDemoMode={apiStatus.isDemo}
+        showInstallButton={!isStandalone}
         theme={theme}
         onToggleTheme={toggleTheme}
       />
@@ -389,7 +313,9 @@ export const App: React.FC = () => {
           >
             <RefreshCw
               className={`w-4 h-4 text-blue-600 dark:text-blue-400 ${
-                isTriggered || isPullRefreshing ? 'animate-spin text-emerald-500 dark:text-emerald-400' : ''
+                isTriggered || isPullRefreshing
+                  ? 'animate-spin text-emerald-500 dark:text-emerald-400'
+                  : ''
               }`}
             />
             <span>
@@ -400,6 +326,21 @@ export const App: React.FC = () => {
                 : 'Nach unten ziehen...'}
             </span>
           </div>
+        )}
+
+        {/* Offline-Hinweis */}
+        {(isOffline || isShowingCachedOffline) && (
+          <output className="bg-slate-200/90 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-slate-200 flex items-center gap-2">
+            <WifiOff className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+            <span>
+              {isShowingCachedOffline && lastUpdated
+                ? `Offline – zeige zuletzt gespeicherte Preise vom ${lastUpdated.toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })} Uhr.`
+                : 'Keine Internetverbindung – Preise können erst wieder online aktualisiert werden.'}
+            </span>
+          </output>
         )}
 
         <FuelSelector selectedFuel={fuelType} onSelectFuel={setFuelType} />
@@ -430,6 +371,28 @@ export const App: React.FC = () => {
           isLoadingRoute={isLoadingStations && isRouteMode}
         />
 
+        {/* In-App Wunschpreis-Treffer Banner */}
+        {alertHit && (
+          <output className="bg-emerald-50 dark:bg-emerald-950/45 border border-emerald-300 dark:border-emerald-700/70 rounded-xl p-3 text-xs text-emerald-900 dark:text-emerald-200 flex items-center justify-between gap-2 animate-fade-in">
+            <span className="flex items-center gap-2 font-semibold">
+              <BellRing className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span>
+                Wunschpreis erreicht ({priceAlert.fuelType.toUpperCase()} ≤{' '}
+                {formatPrice(priceAlert.targetPrice, 3)}):{' '}
+                <strong>{formatPrice(alertHit.price, 3)}</strong> bei {alertHit.stationName}
+                {alertHit.count > 1 ? ` (+${alertHit.count - 1} weitere)` : ''}
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsPriceAlertOpen(true)}
+              className="text-[11px] font-bold underline text-emerald-700 dark:text-emerald-300 shrink-0 cursor-pointer"
+            >
+              Anpassen
+            </button>
+          </output>
+        )}
+
         {/* Fehler-Meldung bei GPS */}
         {locationError && (
           <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800/60 rounded-xl p-2.5 text-xs text-amber-900 dark:text-amber-200 flex items-center justify-between gap-2">
@@ -444,6 +407,14 @@ export const App: React.FC = () => {
             >
               Ausblenden
             </button>
+          </div>
+        )}
+
+        {/* Routen-Hinweis (Lücken bei Langstrecke / Teilfehler) */}
+        {routeWarning && isRouteMode && (
+          <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 rounded-xl p-2.5 text-xs text-blue-900 dark:text-blue-200 flex items-start gap-2">
+            <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+            <span>{routeWarning}</span>
           </div>
         )}
 
@@ -494,17 +465,19 @@ export const App: React.FC = () => {
         </div>
 
         {/* API-Fehler Hinweis */}
-        {fetchError && (
+        {fetchError && !isShowingCachedOffline && (
           <div className="bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 rounded-2xl p-4 text-xs text-rose-900 dark:text-rose-200 space-y-2">
             <div className="flex items-center gap-2 font-bold text-rose-700 dark:text-rose-300">
-              <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+              <TriangleExclamationPoint className="w-4 h-4 text-rose-600 dark:text-rose-400" />
               Fehler beim Laden der Preise
             </div>
             <p className="leading-relaxed">{fetchError}</p>
             <div className="flex gap-2 pt-1">
               <button
                 type="button"
-                onClick={handleManualRefresh}
+                onClick={() => {
+                  void refreshStations();
+                }}
                 className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-lg text-xs cursor-pointer"
               >
                 Erneut versuchen
@@ -515,15 +488,27 @@ export const App: React.FC = () => {
 
         {/* Content View: Liste oder Karte */}
         {viewMode === 'map' ? (
-          <MapView
-            stations={filteredStations}
-            userCoords={coords}
-            selectedFuel={fuelType}
-            minPrice={minPrice}
-            onCenterUser={requestCurrentLocation}
-            favoriteIds={favoriteIds}
-            onToggleFavorite={toggleFavorite}
-          />
+          <Suspense
+            fallback={
+              <div className="w-full h-[65vh] min-h-[400px] rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col items-center justify-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                <LoaderCircle className="w-6 h-6 animate-spin text-blue-600 dark:text-blue-400" />
+                <span>Karte wird geladen...</span>
+              </div>
+            }
+          >
+            <MapView
+              stations={filteredStations}
+              userCoords={coords}
+              selectedFuel={fuelType}
+              minPrice={minPrice}
+              theme={theme}
+              isRouteMode={isRouteMode}
+              routeDestination={routeDest}
+              onCenterUser={requestCurrentLocation}
+              favoriteIds={favoriteIds}
+              onToggleFavorite={toggleFavorite}
+            />
+          </Suspense>
         ) : (
           <div className="space-y-3">
             {isLoadingStations && stations.length === 0 ? (
@@ -540,20 +525,30 @@ export const App: React.FC = () => {
                 ))}
               </div>
             ) : filteredStations.length > 0 ? (
-              filteredStations.map((station) => (
-                <StationCard
-                  key={station.id}
-                  station={station}
-                  selectedFuel={fuelType}
-                  minPrice={minPrice}
-                  minDist={minDist}
-                  closestStationPrice={closestStationPrice}
-                  userSettings={userSettings}
-                  isRouteMode={isRouteMode}
-                  isFavorite={favoriteIds.includes(station.id)}
-                  onToggleFavorite={toggleFavorite}
-                />
-              ))
+              filteredStations.map((station) => {
+                const alertFuelPrice =
+                  priceAlert.enabled && station.isOpen
+                    ? getFuelPrice(station, priceAlert.fuelType)
+                    : null;
+                const isAlertHitCard =
+                  alertFuelPrice !== null && alertFuelPrice <= priceAlert.targetPrice;
+
+                return (
+                  <StationCard
+                    key={station.id}
+                    station={station}
+                    selectedFuel={fuelType}
+                    minPrice={minPrice}
+                    minDist={minDist}
+                    closestStationPrice={closestStationPrice}
+                    userSettings={userSettings}
+                    isRouteMode={isRouteMode}
+                    isPriceAlertHit={isAlertHitCard}
+                    isFavorite={favoriteSet.has(station.id)}
+                    onToggleFavorite={toggleFavorite}
+                  />
+                );
+              })
             ) : (
               <div className="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 text-center space-y-3 shadow-sm dark:shadow-none">
                 <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 flex items-center justify-center mx-auto">
@@ -595,13 +590,52 @@ export const App: React.FC = () => {
             )}
           </div>
         )}
+
+        {/* Gesetzlich vorgeschriebene Datenquellen-Hinweise (CC BY 4.0 & ODbL) */}
+        <footer className="pt-4 pb-2 text-center text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed space-y-1">
+          <p>
+            Kraftstoffpreise via{' '}
+            <a
+              href="https://creativecommons.tankerkoenig.de/"
+              target="_blank"
+              rel="noreferrer"
+              className="underline hover:text-slate-800 dark:hover:text-slate-200"
+            >
+              Tankerkönig
+            </a>{' '}
+            / MTS-K (Bundeskartellamt) unter{' '}
+            <a
+              href="https://creativecommons.org/licenses/by/4.0/"
+              target="_blank"
+              rel="noreferrer"
+              className="underline hover:text-slate-800 dark:hover:text-slate-200"
+            >
+              CC BY 4.0
+            </a>{' '}
+            (aufbereitet &amp; gefiltert).
+          </p>
+          <p>
+            Ortssuche &amp; Kartendaten &copy;{' '}
+            <a
+              href="https://www.openstreetmap.org/copyright"
+              target="_blank"
+              rel="noreferrer"
+              className="underline hover:text-slate-800 dark:hover:text-slate-200"
+            >
+              OpenStreetMap
+            </a>{' '}
+            Mitwirkende.
+          </p>
+        </footer>
       </main>
 
       {/* Floating Refresh Action Button at bottom */}
       <div className="fixed bottom-4 left-0 right-0 z-30 pointer-events-none flex justify-center px-4 pb-safe">
         <button
           type="button"
-          onClick={handleManualRefresh}
+          onClick={() => {
+            void refreshStations();
+          }}
           disabled={isLoadingStations || (isRouteMode && !routeDest)}
           className="pointer-events-auto flex items-center gap-2 px-5 py-3 bg-blue-600/95 hover:bg-blue-500 active:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs rounded-full shadow-2xl shadow-blue-600/40 backdrop-blur-md border border-blue-400/30 transition-all active:scale-95 cursor-pointer"
         >
@@ -610,29 +644,43 @@ export const App: React.FC = () => {
         </button>
       </div>
 
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        onModeChanged={handleApiModeChanged}
-        apiStatus={apiStatus}
-      />
+      {isSettingsOpen && (
+        <Suspense fallback={null}>
+          <SettingsModal
+            isOpen={isSettingsOpen}
+            onClose={handleCloseSettings}
+            onModeChanged={handleApiModeChanged}
+            apiStatus={apiStatus}
+          />
+        </Suspense>
+      )}
 
-      <PriceAlertModal
-        isOpen={isPriceAlertOpen}
-        onClose={() => setIsPriceAlertOpen(false)}
-        priceAlert={priceAlert}
-        onSavePriceAlert={setPriceAlert}
-        userSettings={userSettings}
-        onSaveUserSettings={setUserSettings}
-        currentFuelType={fuelType}
-      />
+      {isPriceAlertOpen && (
+        <Suspense fallback={null}>
+          <PriceAlertModal
+            isOpen={isPriceAlertOpen}
+            onClose={handleClosePriceAlert}
+            priceAlert={priceAlert}
+            onSavePriceAlert={setPriceAlert}
+            userSettings={userSettings}
+            onSaveUserSettings={setUserSettings}
+            currentFuelType={fuelType}
+          />
+        </Suspense>
+      )}
 
-      <PWAInstallGuideModal
-        isOpen={isInstallGuideOpen}
-        onClose={() => setIsInstallGuideOpen(false)}
-      />
+      {isInstallGuideOpen && (
+        <Suspense fallback={null}>
+          <PWAInstallGuideModal
+            isOpen={isInstallGuideOpen}
+            onClose={handleCloseInstallGuide}
+            canPromptNativeInstall={canPromptNativeInstall}
+            onTriggerNativeInstall={triggerNativeInstall}
+          />
+        </Suspense>
+      )}
     </div>
   );
-};
+}
 
 export default App;

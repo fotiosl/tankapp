@@ -1,6 +1,15 @@
-import React, { useState } from 'react';
-import { X, Bell, BellRing, Check, Sliders, Info, AlertTriangle } from 'lucide-react';
+import { useState, useRef, useEffect, type FormEvent } from 'react';
+import {
+  X,
+  Bell,
+  BellRing,
+  Check,
+  SlidersVertical,
+  Info,
+  TriangleExclamationPoint,
+} from 'lucide-react';
 import type { FuelType, PriceAlert, UserSettings } from '../types';
+import { isFuelType } from '../utils/typeGuards';
 import { ModalShell } from './ModalShell';
 
 interface PriceAlertModalProps {
@@ -13,14 +22,14 @@ interface PriceAlertModalProps {
   currentFuelType: FuelType;
 }
 
-const PriceAlertModalContent: React.FC<Omit<PriceAlertModalProps, 'isOpen'>> = ({
+function PriceAlertModalContent({
   onClose,
   priceAlert,
   onSavePriceAlert,
   userSettings,
   onSaveUserSettings,
   currentFuelType,
-}) => {
+}: Omit<PriceAlertModalProps, 'isOpen'>) {
   const supportsNotifications =
     typeof window !== 'undefined' && 'Notification' in window;
 
@@ -35,6 +44,16 @@ const PriceAlertModalContent: React.FC<Omit<PriceAlertModalProps, 'isOpen'>> = (
     supportsNotifications ? Notification.permission : 'denied'
   );
   const [savedSuccess, setSavedSuccess] = useState(false);
+
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current !== null) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleRequestPermission = async () => {
     if (!supportsNotifications) return;
@@ -54,14 +73,16 @@ const PriceAlertModalContent: React.FC<Omit<PriceAlertModalProps, 'isOpen'>> = (
       setEnabled(false);
       return;
     }
+    setEnabled(true);
     if (supportsNotifications && notificationState === 'default') {
       await handleRequestPermission();
     }
-    setEnabled(true);
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = (e: FormEvent) => {
     e.preventDefault();
+    if (savedSuccess) return;
+
     const parsedTarget = Number.parseFloat(targetPrice.replace(',', '.'));
     const parsedVolume = Number.parseFloat(tankVolume.replace(',', '.'));
     const parsedConsumption = Number.parseFloat(consumption.replace(',', '.'));
@@ -83,7 +104,10 @@ const PriceAlertModalContent: React.FC<Omit<PriceAlertModalProps, 'isOpen'>> = (
     });
 
     setSavedSuccess(true);
-    setTimeout(() => {
+    if (timeoutRef.current !== null) {
+      clearTimeout(timeoutRef.current);
+    }
+    timeoutRef.current = setTimeout(() => {
       setSavedSuccess(false);
       onClose();
     }, 550);
@@ -129,16 +153,24 @@ const PriceAlertModalContent: React.FC<Omit<PriceAlertModalProps, 'isOpen'>> = (
               Wunschpreis-Alarm
             </label>
 
-            <label className="relative inline-flex items-center cursor-pointer">
+            <span className="relative inline-flex items-center">
               <input
                 id="price-alert-enabled"
                 type="checkbox"
                 checked={enabled}
-                onChange={(e) => handleToggleEnabled(e.target.checked)}
+                onChange={(e) => {
+                  void handleToggleEnabled(e.target.checked);
+                }}
                 className="sr-only peer"
               />
-              <div className="w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600" />
-            </label>
+              <span
+                aria-hidden="true"
+                onClick={() => {
+                  void handleToggleEnabled(!enabled);
+                }}
+                className="w-9 h-5 bg-slate-300 dark:bg-slate-700 rounded-full cursor-pointer peer peer-focus-visible:ring-2 peer-focus-visible:ring-blue-500 peer-focus-visible:ring-offset-2 dark:peer-focus-visible:ring-offset-slate-900 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"
+              />
+            </span>
           </div>
 
           {enabled && (
@@ -154,7 +186,11 @@ const PriceAlertModalContent: React.FC<Omit<PriceAlertModalProps, 'isOpen'>> = (
                   <select
                     id="alert-fuel-type"
                     value={fuelType}
-                    onChange={(e) => setFuelType(e.target.value as FuelType)}
+                    onChange={(e) => {
+                      if (isFuelType(e.target.value)) {
+                        setFuelType(e.target.value);
+                      }
+                    }}
                     className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
                   >
                     <option value="diesel">Diesel</option>
@@ -186,30 +222,32 @@ const PriceAlertModalContent: React.FC<Omit<PriceAlertModalProps, 'isOpen'>> = (
 
               {!supportsNotifications ? (
                 <div className="p-2.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 rounded-xl text-[11px] text-amber-800 dark:text-amber-300 flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <TriangleExclamationPoint className="w-4 h-4 shrink-0 mt-0.5" />
                   <span>
-                    Browser-Benachrichtigungen werden auf diesem Gerät/Tab nicht unterstützt (z. B. iOS Safari ohne Web-Push).
+                    Nur In-App-Banner aktiv: System-Mitteilungen werden in diesem Browser nicht unterstützt.
                   </span>
                 </div>
               ) : notificationState === 'denied' ? (
                 <div className="p-2.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 rounded-xl text-[11px] text-amber-800 dark:text-amber-300 flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <TriangleExclamationPoint className="w-4 h-4 shrink-0 mt-0.5" />
                   <span>
-                    Benachrichtigungen sind im Browser blockiert. Bitte in den Website-Einstellungen erlauben.
+                    Nur In-App-Banner aktiv: Browser-Mitteilungen sind blockiert. Du kannst sie in den Website-Einstellungen erlauben.
                   </span>
                 </div>
               ) : notificationState !== 'granted' ? (
                 <button
                   type="button"
-                  onClick={handleRequestPermission}
+                  onClick={() => {
+                    void handleRequestPermission();
+                  }}
                   className="w-full py-2 bg-sky-500/15 dark:bg-sky-600/20 hover:bg-sky-500/25 dark:hover:bg-sky-600/30 text-sky-700 dark:text-sky-300 border border-sky-500/30 rounded-xl text-xs font-semibold transition cursor-pointer"
                 >
-                  🔔 Browser-Mitteilungen erlauben
+                  🔔 Browser-Mitteilungen zusätzlich erlauben
                 </button>
               ) : null}
 
               <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                Hinweis: Benachrichtigt dich bei geöffneter App, sobald eine geöffnete Tankstelle beim Aktualisieren deinen Wunschpreis unterschreitet (keine Hintergrund-Push-Nachrichten).
+                Hinweis: Zeigt bei geöffneter App sofort ein Treffer-Banner (plus optionale Browser-/PWA-Mitteilung), sobald eine geöffnete Tankstelle deinen Wunschpreis erreicht.
               </p>
             </div>
           )}
@@ -218,7 +256,7 @@ const PriceAlertModalContent: React.FC<Omit<PriceAlertModalProps, 'isOpen'>> = (
         {/* Section 2: Umweg-Rechner Parameter */}
         <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 rounded-2xl p-4 space-y-3">
           <div className="flex items-center gap-1.5 text-xs font-bold">
-            <Sliders className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+            <SlidersVertical className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
             „Lohnt sich der Umweg?“-Parameter
           </div>
 
@@ -279,7 +317,8 @@ const PriceAlertModalContent: React.FC<Omit<PriceAlertModalProps, 'isOpen'>> = (
 
         <button
           type="submit"
-          className="w-full py-3 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-bold rounded-xl text-xs transition shadow-lg shadow-blue-600/25 flex items-center justify-center gap-2 cursor-pointer"
+          disabled={savedSuccess}
+          className="w-full py-3 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:opacity-70 text-white font-bold rounded-xl text-xs transition shadow-lg shadow-blue-600/25 flex items-center justify-center gap-2 cursor-pointer"
         >
           {savedSuccess ? (
             <>
@@ -293,13 +332,9 @@ const PriceAlertModalContent: React.FC<Omit<PriceAlertModalProps, 'isOpen'>> = (
       </form>
     </>
   );
-};
+}
 
-export const PriceAlertModal: React.FC<PriceAlertModalProps> = ({
-  isOpen,
-  onClose,
-  ...rest
-}) => {
+export function PriceAlertModal({ isOpen, onClose, ...rest }: PriceAlertModalProps) {
   return (
     <ModalShell
       isOpen={isOpen}
@@ -310,4 +345,6 @@ export const PriceAlertModal: React.FC<PriceAlertModalProps> = ({
       <PriceAlertModalContent onClose={onClose} {...rest} />
     </ModalShell>
   );
-};
+}
+
+export default PriceAlertModal;

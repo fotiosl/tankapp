@@ -1,16 +1,27 @@
-import React from 'react';
-import { X, Share, PlusSquare, Smartphone, Wifi } from 'lucide-react';
+import { X, Share, SquarePlus, Smartphone, Wifi, Download } from 'lucide-react';
 import { ModalShell } from './ModalShell';
 
 interface PWAInstallGuideModalProps {
   isOpen: boolean;
   onClose: () => void;
+  canPromptNativeInstall?: boolean;
+  onTriggerNativeInstall?: () => Promise<boolean>;
 }
 
-export const PWAInstallGuideModal: React.FC<PWAInstallGuideModalProps> = ({
+export function PWAInstallGuideModal({
   isOpen,
   onClose,
-}) => {
+  canPromptNativeInstall = false,
+  onTriggerNativeInstall,
+}: PWAInstallGuideModalProps) {
+  const handleNativeInstall = async () => {
+    if (!onTriggerNativeInstall) return;
+    const accepted = await onTriggerNativeInstall();
+    if (accepted) {
+      onClose();
+    }
+  };
+
   return (
     <ModalShell
       isOpen={isOpen}
@@ -26,7 +37,7 @@ export const PWAInstallGuideModal: React.FC<PWAInstallGuideModalProps> = ({
           </div>
           <div>
             <h2 id="pwa-install-modal-title" className="text-lg font-bold leading-tight">
-              iPhone Installation
+              App installieren (PWA)
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               Ohne App Store direkt auf dem Homescreen
@@ -44,8 +55,31 @@ export const PWAInstallGuideModal: React.FC<PWAInstallGuideModalProps> = ({
         </button>
       </div>
 
-      {/* Steps */}
-      <div className="space-y-3.5">
+      {/* Native 1-Click Install Prompt (Android Chrome / Desktop Edge & Chrome) */}
+      {canPromptNativeInstall && onTriggerNativeInstall && (
+        <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50 rounded-2xl p-4 space-y-2.5">
+          <p className="text-xs text-emerald-900 dark:text-emerald-200 font-medium leading-relaxed">
+            Dein Browser unterstützt die direkte 1-Klick-Installation auf den Startbildschirm oder Desktop:
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              void handleNativeInstall();
+            }}
+            className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-2 shadow-sm"
+          >
+            <Download className="w-4 h-4" />
+            TankApp jetzt installieren
+          </button>
+        </div>
+      )}
+
+      {/* iPhone / Safari Steps */}
+      <div className="space-y-3">
+        <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          Anleitung für iPhone (Safari)
+        </p>
+
         <div className="flex items-start gap-3.5 bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700/50">
           <div className="w-7 h-7 rounded-full bg-blue-500/15 dark:bg-blue-600/30 text-blue-700 dark:text-blue-400 font-bold text-xs flex items-center justify-center shrink-0 border border-blue-500/40">
             1
@@ -82,7 +116,7 @@ export const PWAInstallGuideModal: React.FC<PWAInstallGuideModalProps> = ({
           <div className="text-xs space-y-1">
             <p className="font-semibold text-slate-900 dark:text-slate-200 flex items-center gap-1.5">
               <span>„Zum Home-Bildschirm“</span>
-              <PlusSquare className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
+              <SquarePlus className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
             </p>
             <p className="text-slate-600 dark:text-slate-400">
               Scrolle im Menü etwas herunter und tippe auf <strong>„Zum Home-Bildschirm“</strong>.
@@ -112,7 +146,7 @@ export const PWAInstallGuideModal: React.FC<PWAInstallGuideModalProps> = ({
           Hinweis zu GPS &amp; Offline-Nutzung
         </div>
         <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-[11px]">
-          Die Standortermittlung per GPS funktioniert aus Sicherheitsgründen unter iOS ausschließlich über eine verschlüsselte HTTPS-Verbindung (z. B. über das Vercel-Deployment).
+          Die Standortermittlung per GPS funktioniert aus Sicherheitsgründen unter iOS ausschließlich über eine verschlüsselte HTTPS-Verbindung. Ohne Internetverbindung zeigt TankApp automatisch die zuletzt geladenen Preise an.
         </p>
       </div>
 
@@ -125,4 +159,6 @@ export const PWAInstallGuideModal: React.FC<PWAInstallGuideModalProps> = ({
       </button>
     </ModalShell>
   );
-};
+}
+
+export default PWAInstallGuideModal;

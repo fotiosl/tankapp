@@ -32,18 +32,18 @@ Egal ob auf dem Weg zur Arbeit, vor der Urlaubsfahrt oder spontan unterwegs: Tan
 - ⚡ **Echtzeit-Preise**: Minutengenaue Preise für Diesel, Super E10 und Super E5.
 - 🏆 **Preis-Highlighting**: Die günstigste Tankstelle im Umkreis wird automatisch hervorgehoben – inklusive Anzeige der genauen Ersparnis pro Liter.
 - 🗺️ **Interaktive Karte & Listenansicht**:
-  - Wechsle flexibel zwischen der übersichtlichen Tankstellen-Liste und der interaktiven **Leaflet-Karte** mit Preis-Pins.
-  - Detaillierte Popups mit Öffnungszeiten, Markenfarben und Direktnavigation.
-- 🏷️ **Marken-Schnellfilter**: Filtere mit einem Klick nach Tankstellenketten wie **Aral, Shell, Jet, TotalEnergies, HEM, Esso, Avia, Star** oder freien Tankstellen.
+  - Wechsle flexibel zwischen der übersichtlichen Tankstellen-Liste und der interaktiven **Leaflet-Karte** (inkl. Dark-Mode-Kartenstil, Marken-Badges, Status und Routen-Darstellung).
+  - Lazy-Loading der Karten-Engine für extrem schnelle erste Ladezeiten.
+- 🏷️ **Marken-Schnellfilter**: Filtere mit einem Klick (mit Wortgrenzen-Schutz) nach Tankstellenketten wie **Aral, Shell, JET, Total, Esso, HEM, AVIA und star** oder per Freitext nach Name, Straße, Ort und PLZ.
 - ⭐ **Favoriten-Funktion**: Markiere häufig genutzte Tankstellen mit dem Sternsymbol und rufe sie jederzeit gefiltert ab (dauerhaft im `localStorage` gespeichert).
-- 💰 **Sprit- & Ersparnisrechner**: Berechne im Handumdrehen, wie viele Euro du bei einer vollen Tankfüllung (z. B. 50 Liter) gegenüber teureren Alternativen sparst.
-- 🔔 **Preisalarm / Wunschpreis**: Hinterlege deinen Zielpreis pro Liter, um sofort zu sehen, ob Tanken sich aktuell lohnt.
-- 🧭 **1-Klick-Navigation**: Öffnet die Zielroute direkt in **Apple Maps** (unter iOS) oder **Google Maps**.
-- 📍 **GPS & Adresssuche**: Automatische Live-Standortermittlung per Browser-GPS oder manuelle Suche nach Postleitzahl, Ort oder Adresse.
-- 🎚️ **Flexibler Suchradius**: Frei wählbarer Suchkreis von 1 km bis 25 km.
-- 🔄 **Pull-to-Refresh**: Bequemes Herunterziehen auf dem Smartphone zum sofortigen Aktualisieren der Preise.
-- 📱 **Native PWA-Erfahrung**: Lässt sich ohne App Store direkt auf dem iOS-Homescreen ablegen (Vollbildmodus, keine Browser-Adressleiste).
-- 🛡️ **Integrierter Vercel Serverless Proxy**: Schützt den Tankerkönig-API-Key serverseitig vor Missbrauch und puffert Anfragen mit Edge-Caching (`Cache-Control: s-maxage=60`).
+- 💰 **Sprit- & Ersparnisrechner**: Berechnet automatisch die Netto-Ersparnis (abzüglich Umweg-Spritkosten) im Vergleich zur nächstgelegenen geöffneten Tankstelle.
+- 🔔 **Preisalarm / Wunschpreis**: Hinterlege deinen Zielpreis pro Liter für ein sofortiges In-App-Treffer-Banner plus optionale Browser-/PWA-Benachrichtigungen.
+- 🧭 **1-Klick-Navigation**: Öffnet die Zielroute direkt in **Apple Maps** (Universal Link unter iOS) oder **Google Maps**.
+- 📍 **GPS & Adresssuche**: Automatische Live-Standortermittlung per Browser-GPS, Speicherung des letzten Standorts sowie manuelle Ortssuche über den Serverless Geocoding-Proxy (`/api/geocode`).
+- 🎚️ **Flexibler Suchradius & Routen-Modus**: Debounced Suchkreis von 1 km bis 25 km sowie Korridor-Suche entlang einer Luftlinien-Strecke.
+- 🔄 **Pull-to-Refresh & Offline-Fallback**: Bequemes Herunterziehen zum Aktualisieren der Preise sowie automatische Anzeige zuletzt geladener Preise bei fehlender Netzverbindung.
+- 📱 **Native PWA-Erfahrung**: 1-Klick-Installation auf Android/Desktop (`beforeinstallprompt`) sowie iOS-Homescreen-Anleitung.
+- 🛡️ **Integrierte Vercel Serverless Proxies**: Schützen den Tankerkönig-API-Key serverseitig (`/api/stations`) und kapseln die Nominatim-Ortssuche (`/api/geocode`) mit Rate-Limiting, Edge-Caching und Security-Headern.
 - 🧪 **Eingebauter Demo-Modus**: Teste die App sofort nach dem Klonen – auch ohne eigenen API-Key.
 
 ---
@@ -93,9 +93,13 @@ npm run dev
 ```
 Der Server startet standardmäßig auf `http://localhost:5173/` (mit `--host` auch im gesamten Heim-WLAN unter der lokalen IP erreichbar).
 
-### 4. Build für Produktion
+### 4. Qualitätssicherung & Build für Produktion
 ```bash
-npm run build
+npm run typecheck      # TypeScript-Prüfung (tsc -b)
+npm run lint           # Oxlint inkl. Type-Aware & A11y-Regeln
+npm test               # Vitest Unit- & Integrationstests
+npm run test:coverage  # Testabdeckung (V8 Coverage)
+npm run build          # Produktions-Build
 ```
 
 ---
@@ -110,9 +114,9 @@ npm run build
 
 ### Verwendung in der App
 Der API-Key kann auf drei Wegen genutzt werden:
-1. **In den App-Einstellungen**: Über das **Schlüssel-Symbol** oben rechts direkt im Browser / auf dem Smartphone eingeben (wird lokal im Browser gespeichert).
+1. **In den App-Einstellungen**: Über das **Zahnrad-Symbol (Einstellungen)** oben rechts direkt im Browser / auf dem Smartphone eingeben (wird lokal im Browser gespeichert).
 2. **In der lokalen `.env`**: Als `VITE_TANKERKOENIG_API_KEY=...` für die lokale Entwicklung.
-3. **Auf Vercel (Empfohlen für Produktion)**: Als Umgebungsvariable `TANKERKOENIG_API_KEY` im Vercel Dashboard hinterlegen. Dadurch greift das Frontend auf den sicheren Serverless Proxy `/api/stations` zu, ohne dass der Key im Client-Code exponiert wird.
+3. **Auf Vercel (Empfohlen für Produktion)**: Als Umgebungsvariable `TANKERKOENIG_API_KEY` im Vercel Dashboard hinterlegen. Optional können zusätzliche CORS-Origins per `ALLOWED_ORIGINS` (kommasepariert) freigeschaltet werden. Dadurch greift das Frontend auf den sicheren Serverless Proxy `/api/stations` zu, ohne dass der Key im Client-Code exponiert wird.
 
 ### Deployment auf Vercel
 Das Projekt ist vorkonfiguriert für [Vercel](https://vercel.com/):
@@ -141,29 +145,34 @@ Die Web-App kann ohne Umweg über den App Store direkt auf dem iPhone-Homescreen
 ```text
 tankapp/
 ├── api/                     # Vercel Serverless Functions
-│   └── stations.js          # API-Proxy mit Eingabevalidierung & Edge-Caching
-├── public/                  # Statische Assets, Service Worker & PWA-Icons (PNG/SVG)
+│   ├── _shared.js           # Gemeinsame CORS-, Security- & Rate-Limit-Helfer
+│   ├── stations.js          # Tankerkönig-Proxy mit Eingabevalidierung & Edge-Caching
+│   └── geocode.js           # Nominatim-Proxy mit konformem User-Agent & 24h-Caching
+├── public/                  # Statische Assets, Service Worker & PWA-Icons
+├── tests/                   # Backend-Tests für Vercel Serverless Functions
 ├── src/
-│   ├── components/          # React-UI-Komponenten
-│   │   ├── AddressSearchBox.tsx # Wiederverwendbare Ortssuche (Nominatim)
-│   │   ├── FuelSelector.tsx # Kraftstoffauswahl (Diesel, E10, E5)
-│   │   ├── Header.tsx       # Kopfzeile mit Status und Dialogen
-│   │   ├── MapView.tsx      # Interaktive Leaflet-Karte mit Pins
-│   │   ├── ModalShell.tsx   # Barrierefreie Dialog-Basis (Escape & Backdrop)
-│   │   ├── PriceAlertModal.tsx # Wunschpreis- & Alarmkonfiguration
-│   │   ├── PWAInstallGuideModal.tsx # Schritt-für-Schritt PWA-Anleitung
-│   │   ├── SearchAndFilters.tsx # Markenfilter, Sortierung & Radius
+│   ├── components/          # React-UI-Komponenten (MapView & Modals lazy-loaded)
+│   │   ├── AddressSearchBox.tsx # Wiederverwendbare Ortssuche
+│   │   ├── ErrorBoundary.tsx    # Fehler-Auffangkomponente
+│   │   ├── FuelSelector.tsx     # Kraftstoffauswahl (Diesel, E10, E5)
+│   │   ├── Header.tsx           # Kopfzeile mit Status und Dialogen
+│   │   ├── MapView.tsx          # Interaktive Leaflet-Karte (Light/Dark + Route)
+│   │   ├── ModalShell.tsx       # Barrierefreie Dialog-Basis (Focus-Trap & Escape)
+│   │   ├── PriceAlertModal.tsx  # Wunschpreis- & Alarmkonfiguration
+│   │   ├── PWAInstallGuideModal.tsx # 1-Klick- & iOS-Installationsanleitung
+│   │   ├── SearchAndFilters.tsx # Markenfilter, Sortierung & debounced Radius
 │   │   ├── SettingsModal.tsx    # API-Key- & App-Einstellungen
-│   │   └── StationCard.tsx  # Tankstellen-Karte mit Preisvergleich
-│   ├── hooks/               # Custom React Hooks (z.B. Pull-to-Refresh, Theme)
-│   ├── services/            # API-Abfragen und Demo-Fallback-Logik
+│   │   └── StationCard.tsx      # Tankstellen-Karte mit Preisvergleich & Öffnungszeiten
+│   ├── hooks/               # Custom React Hooks (Stations, Geolocation, Alerts, PWA, Theme)
+│   ├── services/            # API-Abfragen, Proxy-Sync und Caching
 │   ├── utils/               # Markenstyling, Formatierung & Sparrechner
-│   ├── App.tsx              # Hauptanwendung & State-Management
-│   ├── main.tsx             # Einstiegspunkt & Service-Worker-Registrierung
+│   ├── App.tsx              # Hauptanwendung
+│   ├── main.tsx             # Einstiegspunkt, ErrorBoundary & SW-Registrierung
 │   └── types.ts             # TypeScript Typdefinitionen
+├── .github/workflows/ci.yml # GitHub Actions CI (Typecheck, Lint, Test, Build)
 ├── package.json
 ├── tsconfig.json
-├── vercel.json              # Vercel Rewrites & Routing
+├── vercel.json              # Security-Header, SW-Caching & SPA-Rewrites
 └── vite.config.ts           # Vite Konfiguration
 ```
 
